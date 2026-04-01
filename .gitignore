@@ -1,0 +1,8 @@
+*.json
+*.txt
+*.bak*
+*.npz
+arxiv_source_cache/
+arxiv_metadata_cache/
+arxiv_embedding_cache/
+__pycache__/
