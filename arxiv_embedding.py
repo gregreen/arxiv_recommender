@@ -1425,9 +1425,9 @@ def rbf_svd_example():
 
 def main():
     tokens = load_tokens()
-    # embeddings = embed_latest_mailing("astro-ph", tokens)
+    embeddings = embed_latest_mailing("astro-ph", tokens)
     # fetch_arxiv_embedding("2603.28400", tokens)
-    embeddings = load_embedding_cache()
+    # embeddings = load_embedding_cache()
 
     # rbf_example()
     # svm_example()
