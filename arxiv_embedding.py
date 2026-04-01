@@ -30,51 +30,13 @@ SUMMARY_CACHE_DIR = "arxiv_summary_cache" # {aid}.txt LLM summary files will be 
 USER_AGENT = "arxiv-recommender/1.0"
 
 
-def consolidate_metadata_cache() -> None:
-    """
-    Consolidates legacy per-paper JSON files (e.g. "2411.16590.json") in
-    SOURCE_CACHE_DIR into monthly bundle files (e.g. "2411.json").
-
-    The original per-paper files are left in place.
-    """
-    # 1. Collect all per-paper JSON files and group by month
-    by_month: dict[str, list[str]] = {}
-    for paper_file in (glob.glob(os.path.join(SOURCE_CACHE_DIR, "????.?????.json")) +
-                       glob.glob(os.path.join(SOURCE_CACHE_DIR, "????.????.json"))):
-        filename = os.path.basename(paper_file)
-        month = filename.split(".")[0]
-        by_month.setdefault(month, []).append(paper_file)
-
-    # 2. Process month by month, writing each monthly cache file once
-    for month, paper_files in by_month.items():
-        monthly_file = os.path.join(SOURCE_CACHE_DIR, f"{month}.json")
-
-        if os.path.exists(monthly_file):
-            with open(monthly_file, "r", encoding="utf-8") as f:
-                monthly_data = json.load(f)
-        else:
-            monthly_data = {}
-
-        for paper_file in paper_files:
-            with open(paper_file, "r", encoding="utf-8") as f:
-                paper_data = json.load(f)
-            arxiv_id = os.path.basename(paper_file)[:-5]  # strip ".json"
-            if "title" in paper_data:
-                monthly_data[arxiv_id] = paper_data
-            else:
-                monthly_data.update(paper_data)
-
-        with open(monthly_file, "w", encoding="utf-8") as f:
-            json.dump(monthly_data, f, ensure_ascii=False, indent=2)
-
-
 def load_from_arxiv_metadata_cache(arxiv_ids: list[str]) -> dict | None:
     """
     Loads metadata for the given arXiv IDs from the monthly cache files in
     METADATA_CACHE_DIR.
 
     Returns a dict mapping arXiv ID to metadata dict for all IDs that were
-    found in the cache.  IDs that are not found are omitted from the result.
+    found in the cache. IDs that are not found are omitted from the result.
     """
     result = {}
 
@@ -126,7 +88,7 @@ def write_to_arxiv_metadata_cache(metadata_dict: dict[str, dict]) -> None:
 
         with open(cache_file, "w", encoding="utf-8") as f:
             json.dump(month_cache, f, ensure_ascii=False, indent=2)
-    
+
 
 def get_arxiv_metadata(arxiv_ids: list[str],
                        s2_token: str | None = None,
@@ -259,56 +221,6 @@ def fetch_arxiv_metadata(arxiv_ids: list[str]) -> dict[str, dict]:
         results[aid] = {"title": title, "authors": authors, "abstract": abstract}
 
     return results
-
-
-def fetch_arxiv_metadata_html(arxiv_id: str) -> dict:
-    """
-    Scrapes the title, authors, and abstract from the arXiv abstract page HTML.
-
-    This is a fallback for cases where the Atom API is unavailable or does not
-    return a result for a given ID.
-
-    Parameters:
-    - arxiv_id: arXiv identifier, e.g. "2101.00001".
-
-    Returns:
-    - A dict with keys "title" (str), "authors" (list[str]), "abstract" (str).
-
-    Raises:
-    - RuntimeError: If the page cannot be fetched or parsed.
-    """
-    html_url = f"https://arxiv.org/abs/{arxiv_id}"
-    resp = requests.get(html_url, headers={"User-Agent": USER_AGENT}, timeout=30)
-    try:
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        raise RuntimeError(f"arXiv abstract page request failed for {arxiv_id}: {e}")
-
-    html = resp.text
-
-    title_match = re.search(
-        r'<h1[^>]*class="[^"]*title[^"]*"[^>]*>(?:Title:)?\s*(.*?)</h1>',
-        html, re.DOTALL | re.IGNORECASE
-    )
-    title = re.sub(r"<[^>]+>", "", title_match.group(1)).strip() if title_match else ""
-
-    author_matches = re.findall(
-        r'<a[^>]+href="/search/[^"]*"[^>]*>(.*?)</a>',
-        html, re.DOTALL
-    )
-    authors = [re.sub(r"<[^>]+>", "", a).strip() for a in author_matches if a.strip()]
-
-    abstract_match = re.search(
-        r'<blockquote[^>]*class="[^"]*abstract[^"]*"[^>]*>(?:Abstract:)?\s*(.*?)</blockquote>',
-        html, re.DOTALL | re.IGNORECASE
-    )
-    abstract = re.sub(r"<[^>]+>", "", abstract_match.group(1)).strip() if abstract_match else ""
-    abstract = " ".join(abstract.split())
-
-    if not title:
-        raise RuntimeError(f"Could not retrieve metadata for arXiv ID {arxiv_id!r}")
-
-    return {"title": title, "authors": authors, "abstract": abstract}
 
 
 def fetch_arxiv_metadata_s2(
@@ -1386,11 +1298,15 @@ def svm_example():
 
 
 def rbf_svd_example():
-    with open("weicheng_papers.txt", "r") as f:
+    with open("my_papers.txt", "r") as f:
         my_papers = [
             line.strip()[6:] for line in f
             if line.strip().startswith("arXiv:")
         ]
+    
+    # Make sure my papers are embedded
+    tokens = load_tokens()
+    embed_arxiv_ids(my_papers, tokens)
     
     # Load paper embeddings and metadata from disk
     embeddings = load_embedding_cache()
@@ -1516,8 +1432,8 @@ def main():
     # rbf_example()
     # svm_example()
     lnp = rbf_svd_example()
-    print(json.dumps(lnp, indent=2))
-    print(lnp['2603.28400'])
+    # print(json.dumps(lnp, indent=2))
+    # print(lnp['2603.28400'])
     
     return 0
 
