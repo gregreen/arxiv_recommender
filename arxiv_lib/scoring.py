@@ -109,37 +109,6 @@ def project_to_subspace(vectors: np.ndarray, projection_matrix: np.ndarray) -> n
     return vectors @ projection_matrix
 
 
-def train_logistic_model(
-    v_positive: np.ndarray,
-    v_negative: np.ndarray,
-    test_size: float = 0.2,
-    random_state: int = 42,
-) -> tuple:
-    """
-    Train a balanced logistic regression to separate positive from negative examples.
-
-    Returns
-    -------
-    model : LogisticRegression
-    X_test : np.ndarray
-    y_test : np.ndarray
-    """
-    X = np.concatenate((v_positive, v_negative), axis=0)
-    y = np.concatenate((np.ones(len(v_positive)), np.zeros(len(v_negative))))
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state, stratify=y
-    )
-    model = LogisticRegression(
-        random_state=random_state,
-        class_weight="balanced",
-        C=0.2,
-        max_iter=1000
-    )
-    model.fit(X_train, y_train)
-    return model, X_test, y_test
-
-
 # ---------------------------------------------------------------------------
 # High-level API
 # ---------------------------------------------------------------------------
@@ -455,7 +424,6 @@ class ScoringModel(object):
         )
 
 
-
 def serialize_logistic_regression_model(model: LogisticRegression) -> dict:
     """Serialize a LogisticRegression model into a dictionary."""
     return {
@@ -478,124 +446,3 @@ def deserialize_logistic_regression_model(data: dict) -> LogisticRegression:
     model.random_state = data["random_state"]
     return model
 
-
-def fit_scoring_model(
-    positive_embeddings: np.ndarray,
-    negative_embeddings: np.ndarray
-) -> ScoringModel:
-    """
-    Train a logistic regression on a set of embedding vectors.
-
-    The training set is the explicitly labelled papers (positive + disliked).
-    All papers not explicitly in the positive set are assumed to be in the negative set.
-
-    Parameters
-    ----------
-    features : np.ndarray, shape (N, F)
-        Output of build_rbf_features().
-    idx_pos : np.ndarray of bool, shape (N,)
-        True for liked papers.
-
-    Returns
-    -------
-    LogisticRegression
-    """
-    idx_neg = ~idx_pos
-    X_train = np.vstack((features[idx_pos], features[idx_neg]))
-    y_train = np.concatenate((
-        np.ones(len(features[idx_pos])),
-        np.zeros(len(features[idx_neg])),
-    ))
-    model = LogisticRegression(
-        random_state=42,
-        class_weight="balanced",
-        C=0.2,
-        max_iter=1000
-    )
-    model.fit(X_train, y_train)
-    return model
-
-
-def apply_scoring_model(
-    model:     LogisticRegression,
-    features:  np.ndarray,
-    arxiv_ids: np.ndarray,
-) -> dict[str, float]:
-    """
-    Apply a fitted logistic regression model to produce per-paper scores.
-
-    Parameters
-    ----------
-    model : LogisticRegression
-        Fitted model, typically the output of fit_scoring_model().
-    features : np.ndarray, shape (N, F)
-        Feature matrix from build_rbf_features().
-    arxiv_ids : np.ndarray of str, shape (N,)
-        Paper IDs in the same row order as *features*.
-
-    Returns
-    -------
-    dict[str, float]
-        Maps arXiv ID → log P(relevant).  Higher = more recommended.
-    """
-    log_proba = model.predict_log_proba(features)[:, 1]
-    return {aid: float(log_proba[i]) for i, aid in enumerate(arxiv_ids)}
-
-
-def score_papers_for_user(
-    liked_ids:    list[str],
-    disliked_ids: list[str],
-    all_ids:      list[str],
-    embeddings:   dict[str, np.ndarray],
-    embedding_dim: int = EMBEDDING_DIM,
-    gammas: np.ndarray = RBF_GAMMAS,
-    n_pca_components: int = RBF_PCA_COMPONENTS,
-) -> dict[str, float]:
-    """
-    Convenience wrapper: truncate embeddings, build features, train, and score.
-
-    Equivalent to::
-
-        arxiv_ids = ...                          # IDs present in embeddings
-        vectors   = embeddings[:embedding_dim]   # truncate
-        features  = build_rbf_features(vectors[idx_pos], vectors, gammas, n_pca_components)
-        model     = fit_scoring_model(features, idx_pos, idx_neg)
-        return    apply_scoring_model(model, features, arxiv_ids)
-
-    Returns a zero-score dict when there are fewer than 2 liked papers with embeddings.
-
-    Returns
-    -------
-    dict[str, float]
-        Maps arXiv ID → log P(relevant).  Higher = more recommended.
-        Only IDs present in *embeddings* are included.
-    """
-    valid_ids = [aid for aid in all_ids if aid in embeddings]
-    if not valid_ids:
-        return {}
-
-    arxiv_ids = np.array(valid_ids)
-    vectors = np.array(
-        [embeddings[aid][:embedding_dim] for aid in arxiv_ids], dtype=np.float32
-    )
-
-    liked_set    = set(liked_ids)
-    disliked_set = set(disliked_ids)
-    idx_pos = np.array([aid in liked_set    for aid in arxiv_ids], dtype=bool)
-    idx_neg = np.array([aid in disliked_set for aid in arxiv_ids], dtype=bool)
-
-    if idx_pos.sum() < 2:
-        return {aid: 0.0 for aid in arxiv_ids}
-
-    # Both scalers are part of the user model and must be stored alongside the
-    # logistic regression weights when persisting per-user models.
-    embedding_scaler = StandardScaler()
-    vectors_s = embedding_scaler.fit_transform(vectors)
-
-    features_raw = build_rbf_features(vectors_s[idx_pos], vectors_s, gammas, n_pca_components)
-
-    feature_scaler = StandardScaler()
-    features = feature_scaler.fit_transform(features_raw)
-
-    model = fit_scoring_model(features, idx_pos, idx_neg)
-    return apply_scoring_model(model, features, arxiv_ids)
