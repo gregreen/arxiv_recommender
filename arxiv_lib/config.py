@@ -48,7 +48,7 @@ SCORING_VERSION = "v1"
 RBF_GAMMAS = np.logspace(-6, 6, num=6, base=2)
 
 # Number of SVD components extracted from the positive-vector matrix.
-RBF_PCA_COMPONENTS = 4
+RBF_PCA_COMPONENTS = 8
 
 # Minimum interval (seconds) between model retrains for a given user,
 # even if their liked-paper set has changed.
