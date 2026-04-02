@@ -4,6 +4,7 @@ import glob
 import os
 import re
 import json
+import sqlite3
 
 import requests
 import xml.etree.ElementTree as ET
@@ -23,7 +24,8 @@ from arxiv_to_prompt import process_latex_source, count_tokens
 import numpy as np
 
 
-EMBEDDING_CACHE_FILE = "embeddings_cache.npz" # {aid: embedding} dict will be stored here
+EMBEDDING_CACHE_DB   = "embeddings_cache.db"  # SQLite DB: table embeddings(arxiv_id, vector)
+EMBEDDING_CACHE_FILE = "embeddings_cache.npz" # legacy .npz; used only for one-time migration
 SOURCE_CACHE_DIR = "arxiv_source_cache" # {aid}.tex files will be stored here
 METADATA_CACHE_DIR = "arxiv_metadata_cache" # {month}.json files will be stored here
 SUMMARY_CACHE_DIR = "arxiv_summary_cache" # {aid}.txt LLM summary files will be stored here
@@ -319,17 +321,50 @@ def fetch_arxiv_metadata_s2(
     return results
 
 
+_embedding_db_initialized = False
+
+
+def _init_embedding_db() -> None:
+    """Create the embeddings table if needed, enable WAL, and auto-migrate from legacy .npz."""
+    global _embedding_db_initialized
+    if _embedding_db_initialized:
+        return
+    con = sqlite3.connect(EMBEDDING_CACHE_DB)
+    try:
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS embeddings "
+            "(arxiv_id TEXT PRIMARY KEY, vector BLOB NOT NULL)"
+        )
+        con.commit()
+        # One-time migration from legacy .npz file
+        if (os.path.exists(EMBEDDING_CACHE_FILE) and
+                con.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0] == 0):
+            print(f"Migrating {EMBEDDING_CACHE_FILE} -> {EMBEDDING_CACHE_DB} ...")
+            data = np.load(EMBEDDING_CACHE_FILE, allow_pickle=False)
+            rows = [(k, data[k].astype(np.float32).tobytes()) for k in data.files]
+            con.executemany("INSERT OR IGNORE INTO embeddings VALUES (?, ?)", rows)
+            con.commit()
+            print(f"  Migrated {len(rows)} embeddings.")
+    finally:
+        con.close()
+    _embedding_db_initialized = True
+
+
 def load_embedding_cache() -> dict[str, np.ndarray]:
-    """Load the embeddings cache from disk. Returns a dict mapping arXiv ID to embedding vector."""
-    if not os.path.exists(EMBEDDING_CACHE_FILE):
-        return {}
-    data = np.load(EMBEDDING_CACHE_FILE, allow_pickle=False)
-    return {key: data[key] for key in data.files}
+    """Load all embeddings from the cache DB. Returns a dict mapping arXiv ID to embedding vector."""
+    _init_embedding_db()
+    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+        rows = con.execute("SELECT arxiv_id, vector FROM embeddings").fetchall()
+    return {aid: np.frombuffer(blob, dtype=np.float32) for aid, blob in rows}
 
 
 def save_embedding_cache(cache: dict[str, np.ndarray]) -> None:
-    """Persist the embeddings cache to disk."""
-    np.savez(EMBEDDING_CACHE_FILE, **cache)
+    """Bulk-upsert a dict of embeddings into the cache DB."""
+    _init_embedding_db()
+    rows = [(aid, vec.astype(np.float32).tobytes()) for aid, vec in cache.items()]
+    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+        con.executemany("INSERT OR REPLACE INTO embeddings VALUES (?, ?)", rows)
 
 
 def raise_on_arxiv_category(category: str) -> bool:
@@ -383,17 +418,21 @@ def fetch_arxiv_embedding(arxiv_id: str, tokens: dict[str, str]) -> np.ndarray:
         the embedding API call fails.
     """
     # If already in cache, return cached embedding
-    cache = load_embedding_cache()
-    if arxiv_id in cache:
-        return cache[arxiv_id]
+    _init_embedding_db()
+    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+        row = con.execute(
+            "SELECT vector FROM embeddings WHERE arxiv_id = ?", (arxiv_id,)
+        ).fetchone()
+    if row is not None:
+        return np.frombuffer(row[0], dtype=np.float32)
 
-    # If not in cache, fetch and embed, then update cache
+    # If not in cache, generate embedding and persist as a single row
     vector = gen_arxiv_embedding(arxiv_id, tokens)
-
-    # Update cache and persist to disk
-    cache[arxiv_id] = vector
-    save_embedding_cache(cache)
-    
+    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+        con.execute(
+            "INSERT OR REPLACE INTO embeddings VALUES (?, ?)",
+            (arxiv_id, vector.astype(np.float32).tobytes())
+        )
     return vector
 
 
@@ -1424,8 +1463,8 @@ def rbf_svd_example():
 
 
 def main():
-    tokens = load_tokens()
-    embeddings = embed_latest_mailing("astro-ph", tokens)
+    # tokens = load_tokens()
+    # embeddings = embed_latest_mailing("astro-ph", tokens)
     # fetch_arxiv_embedding("2603.28400", tokens)
     # embeddings = load_embedding_cache()
 
