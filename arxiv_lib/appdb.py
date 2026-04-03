@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY,
     email         TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
+    is_active     INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -139,10 +140,16 @@ def init_app_db(path: str = APP_DB_PATH) -> None:
     Create all app.db tables if they do not already exist.
 
     Safe to call repeatedly (all DDL uses IF NOT EXISTS).
+    Also runs incremental column migrations for existing databases.
     """
     con = sqlite3.connect(path)
     try:
         con.executescript(_SCHEMA_SQL)
+        # Incremental migrations for existing databases
+        cols = {row[1] for row in con.execute("PRAGMA table_info(users)")}
+        if "is_active" not in cols:
+            # Existing users default to active so they aren't locked out
+            con.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
         con.commit()
     finally:
         con.close()

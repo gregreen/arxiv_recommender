@@ -385,22 +385,26 @@ Updated `experiments/arxiv_embedding.py` shim to remove the deleted names (file 
 
 ---
 
-### Phase 5 — Recommend daemon
-**Goal:** Working daemon that generates and caches recommendation lists.
+### Phase 5 — Recommendation library  ✅ COMPLETE
+**Goal:** Pure-library recommendation engine; no daemon required at this scale.
 
-`daemons/recommend_daemon.py` main loop:
-1. `claim_next_task(con, 'recommend')` — returns task or None.
-2. Extract `user_id` from payload.
-3. Load user's liked (`liked=1`) and disliked (`liked=-1`) paper IDs from `user_papers` table.
-4. Compute `compute_model_hash(liked_ids)`.
-5. Check staleness: if existing recommendations are fresh (hash matches AND no new papers since `generated_at`), skip.
-6. Load all vectors from `embeddings_cache.db`; truncate to `EMBEDDING_DIM`.
-7. Build `v_pos` (liked papers) and `v_neg` (disliked + all unlabelled).
-8. `model = ScoringModel.from_training_data(v_pos, v_neg)`.
-9. Score all papers: `model.score_embeddings(vectors)` for unlabelled, `model.score_positive_embeddings()` for liked.
-10. Upsert into `recommendations` with computed `rank`, for each of four time windows (`day` / `week` / `month` / `year`) filtered by `papers.embedded_at`.
-11. Persist model: `json.dumps(model.serialize())` → `INSERT OR REPLACE INTO user_models ...`.
-12. Mark task done.
+**`arxiv_lib/recommend.py`** — all recommendation logic, independent of daemons or the API layer:
+
+- **`get_recommendations(con, user_id, time_window)`** — main entry point; checks staleness, retrains if needed, returns ranked paper list
+- **`get_or_train_model(con, user_id) → (ScoringModel, model_hash)`** — loads cached model if hash matches; otherwise assembles training data and trains
+- **`refresh_recommendations(con, user_id, model, model_hash)`** — scores all papers, ranks within each time window, upserts into `recommendations`
+- **`recommendations_are_stale(con, user_id, model_hash)`** — returns True if no cache, hash mismatch, or new papers since last generation
+- **`NotEnoughDataError`** — raised when user has fewer than `RECOMMEND_MIN_LIKED` liked papers with embeddings
+
+**Background negatives:** the oldest `BACKGROUND_NEGATIVE_COUNT` (500) embedded papers by `published_date`. Deterministic and stable — newly arriving papers are always newer, so the background set doesn't change as the corpus grows. Liked papers are excluded from the negative set. Explicitly disliked papers are added on top.
+
+**Model hash:** `compute_model_hash(liked_ids, disliked_ids)` — now includes disliked IDs so any new dislike triggers retraining. `SCORING_VERSION` is also encoded, so bumping it invalidates all cached models.
+
+**Time windows:** `'day'`, `'week'`, `'month'` (defined in `RECOMMEND_TIME_WINDOWS`). Filtered by `papers.published_date`.
+
+**New config constants:** `BACKGROUND_NEGATIVE_COUNT = 500`, `BACKGROUND_NEGATIVE_MIN_COUNT = 10`, `RECOMMEND_MIN_LIKED = 3`, `RECOMMEND_TIME_WINDOWS = ('day', 'week', 'month')`.
+
+**Design decision:** Recommendations are computed inline on the API request (fast enough at current scale — pure numpy/sklearn, sub-second). A daily pre-generation pass via `cron_daily.py` or a daemon can be added later without changing this library.
 
 ---
 
@@ -421,7 +425,7 @@ Key endpoints (all require JWT auth except register/login):
 | PATCH | `/users/me/papers/{arxiv_id}` | Update liked flag (+1/0/-1) |
 | DELETE | `/users/me/papers/{arxiv_id}` | Remove from set |
 | POST | `/users/me/papers/import/ads` | Parse NASA ADS export for `arXiv:XXXX.XXXXX` lines; bulk-add |
-| GET | `/recommendations?window=day` | Return ranked recommendations from cache; `{"status": "generating"}` if stale |
+| GET | `/recommendations?window=day` | Compute (or return cached) ranked recommendations; raises 409 if too few liked papers |
 | GET | `/users/me/categories` | Get user's subscribed categories |
 | PUT | `/users/me/categories` | Update subscribed categories |
 
@@ -532,7 +536,7 @@ Stale recommendations: show spinner/banner while `status == "generating"`. Poll 
 - [x] Step 0: dead code cleanup in `scoring.py` — **DONE** (removed `train_test_split` import, fixed docstring, removed debug prints, added `compute_model_hash()`; fixed `experiments/arxiv_embedding.py` import block)
 - [x] Phase 2: app database (`appdb.py` + `scripts/migrate_legacy.py`) — **DONE** (`app.db` created with all 7 tables; 589 papers migrated from `embeddings_cache.db` + metadata cache; `APP_DB_PATH` added to `config.py`)
 - [x] Phase 3: ingest daemons — **DONE** (`daemons/meta_daemon.py` + `daemons/embed_daemon.py`; `fetch_arxiv_metadata` extended with `categories`/`published_date`; `fetch_arxiv_metadata_s2` extended with `published_date`; `claim_next_task` fixed with `RETURNING *`; `claim_next_tasks_batch` added; `META_INGEST_POLL_INTERVAL`, `EMBED_INGEST_POLL_INTERVAL`, `INGEST_META_BATCH_SIZE` added to config; `scripts/cron_daily.py` created)
-- [ ] Phase 5: recommend daemon — not started
+- [x] Phase 5: recommendation library — **DONE** (`arxiv_lib/recommend.py`; `get_recommendations`, `get_or_train_model`, `refresh_recommendations`, `recommendations_are_stale`; background negatives; `compute_model_hash` updated to include disliked IDs)
 - [ ] Phase 6: FastAPI backend — not started
 - [ ] Phase 7: React frontend — not started
 - [ ] Phase 8: ops/deployment — not started

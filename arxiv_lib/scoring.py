@@ -448,24 +448,31 @@ def deserialize_logistic_regression_model(data: dict) -> LogisticRegression:
     return model
 
 
-def compute_model_hash(liked_ids: list[str]) -> str:
+def compute_model_hash(liked_ids: list[str], disliked_ids: list[str] = ()) -> str:
     """
-    Compute a short hash that uniquely identifies the combination of liked papers
-    and current scoring configuration.
+    Compute a short hash that uniquely identifies the combination of liked/disliked
+    papers and current scoring configuration.
 
-    The hash changes whenever the liked set, embedding dimension, or scoring
-    version changes, allowing callers to detect stale cached models.
+    The hash changes whenever the liked or disliked set, embedding dimension, or
+    scoring version changes, allowing callers to detect stale cached models.
 
     Parameters
     ----------
     liked_ids : list[str]
         arXiv IDs of the user's liked papers.  Order does not matter.
+    disliked_ids : list[str]
+        arXiv IDs of the user's explicitly disliked papers.  Order does not matter.
 
     Returns
     -------
     str
         First 16 hex characters of the SHA-256 digest.
     """
-    payload = json.dumps(sorted(liked_ids)) + str(EMBEDDING_DIM) + SCORING_VERSION
+    payload = (
+        json.dumps(sorted(liked_ids))
+        + json.dumps(sorted(disliked_ids))
+        + str(EMBEDDING_DIM)
+        + SCORING_VERSION
+    )
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 

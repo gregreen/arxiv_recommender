@@ -55,6 +55,21 @@ RBF_PCA_COMPONENTS = 8
 # even if their liked-paper set has changed.
 RECOMMEND_MIN_RETRAIN_INTERVAL = 3600
 
+# Background negative papers used for training all users' scoring models.
+# Selecting the oldest N embedded papers is deterministic and stable — the
+# set does not change as new papers arrive (they are always newer), so it
+# does not spuriously invalidate cached models.
+# BACKGROUND_NEGATIVE_COUNT: how many to use.
+# BACKGROUND_NEGATIVE_MIN_COUNT: reject training if fewer than this are available.
+BACKGROUND_NEGATIVE_COUNT = 512
+BACKGROUND_NEGATIVE_MIN_COUNT = 64
+
+# Minimum number of liked papers required before attempting to train a model.
+RECOMMEND_MIN_LIKED = 4
+
+# Time windows exposed by the recommendations endpoint.
+RECOMMEND_TIME_WINDOWS = ("day", "week", "month")
+
 # How long the ingest daemons sleep between polls when the task queue is empty.
 META_INGEST_POLL_INTERVAL = 5   # seconds
 EMBED_INGEST_POLL_INTERVAL = 0.1 # seconds
@@ -101,3 +116,13 @@ ARXIV_CATEGORIES = {
 # Use top-level categories (e.g. "astro-ph") to ingest all sub-categories via
 # the arXiv new-submissions listing, or specific sub-categories for finer control.
 DAILY_INGEST_CATEGORIES: list[str] = ["astro-ph"]
+
+# ---------------------------------------------------------------------------
+# Web / auth
+# ---------------------------------------------------------------------------
+# SECRET_KEY must be set in the environment before starting the API server.
+# Generate one with: python3 -c "import secrets; print(secrets.token_hex(32))"
+SECRET_KEY = os.environ.get("SECRET_KEY", "")
+
+JWT_ALGORITHM   = "HS256"
+JWT_EXPIRE_HOURS = 24

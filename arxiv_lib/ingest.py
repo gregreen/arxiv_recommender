@@ -212,7 +212,10 @@ def get_arxiv_metadata(arxiv_ids: list[str],
         missed = [aid for aid in batch_ids if aid not in fetched]
         if missed:
             print(f"  Fetching {len(missed)} papers not found in S2 from arXiv Atom API.")
-            fetched.update(fetch_arxiv_metadata(missed))
+            try:
+                fetched.update(fetch_arxiv_metadata(missed))
+            except Exception as e:
+                print(f"  Atom fallback failed ({e}); skipping {len(missed)} unfound papers.")
 
         write_to_arxiv_metadata_cache(fetched)
         result.update(fetched)
