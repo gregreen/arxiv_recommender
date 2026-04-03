@@ -1,7 +1,7 @@
 # arxiv Recommender — Web Service Implementation Plan
 
-**Last updated:** 2026-04-02  
-**Status:** Phases 1 and 4 complete. `arxiv_lib/` library exists; `ScoringModel` class is working; `recommend.py` produces verified recommendations.
+**Last updated:** 2026-04-03  
+**Status:** Phases 1–7 complete. Full stack working: `arxiv_lib/` library, ingest daemons, FastAPI backend (`web/`), React frontend (`web/frontend/`). Phase 8 (ops) not yet started.
 
 ---
 
@@ -277,23 +277,33 @@ arxiv_recommender/
     recommend_daemon.py       ← polls task_queue for 'recommend' tasks
 
   web/
-    app.py                    ← FastAPI application factory
-    auth.py                   ← JWT creation/verification, bcrypt helpers
-    dependencies.py           ← FastAPI dependency injection (get_db, get_current_user)
+    app.py                    ← FastAPI application factory  [DONE]
+    auth.py                   ← JWT creation/verification, bcrypt helpers  [DONE]
+    dependencies.py           ← FastAPI dependency injection (get_db, get_current_user)  [DONE]
     routers/
-      auth.py                 ← POST /auth/register, POST /auth/login, POST /auth/logout
-      papers.py               ← GET /papers/{arxiv_id}, GET /papers/search
-      users.py                ← GET/POST/DELETE/PATCH /users/me/papers, POST /users/me/papers/import/ads
-      recommendations.py      ← GET /recommendations?window=day|week|month|year
-    frontend/                 ← React + TypeScript (Vite)
+      auth.py                 ← POST /api/auth/register, POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me  [DONE]
+      papers.py               ← GET /api/papers/{arxiv_id}, GET /api/papers/search  [DONE]
+      users.py                ← GET/POST/DELETE/PATCH /api/users/me/papers, POST /api/users/me/papers/import/ads  [DONE]
+      recommendations.py      ← GET /api/recommendations?window=day|week|month  [DONE]
+    frontend/                 ← React + TypeScript (Vite + Tailwind CSS v4)  [DONE]
       src/
-        App.tsx
+        App.tsx               ← react-router routes, AuthContext provider
+        api/
+          auth.ts             ← login, register, logout, getMe
+          papers.ts           ← getPaper
+          recommendations.ts  ← getRecommendations
+          userPapers.ts       ← getUserPapers, patchUserPaper
         components/
-          PaperList.tsx        ← left pane: list of recommendations
-          PaperDetail.tsx      ← right pane: summary display
-          RelevanceButtons.tsx ← "Relevant" / "Not relevant"
-          OnboardingFlow.tsx   ← category selection + paper seeding
-        api/                  ← typed fetch wrappers
+          MathText.tsx        ← KaTeX renderer ($$...$$ and $...$)
+          PaperDetail.tsx     ← right pane: metadata + summary + liked controls
+          PaperRow.tsx        ← list row with exp(0.5·score) colour bar
+          RecommendationList.tsx ← left pane with Day/Week/Month tabs
+          scoreColor.ts       ← shared score → colour utility
+        pages/
+          LoginPage.tsx
+          RegisterPage.tsx
+          MainLayout.tsx      ← /recommendations route; likedCache state
+          LibraryPage.tsx     ← /library route; two-column liked paper manager
 
   recommend.py                ← working CLI recommendation script (reference usage of ScoringModel)  [DONE]
 
@@ -408,73 +418,102 @@ Updated `experiments/arxiv_embedding.py` shim to remove the deleted names (file 
 
 ---
 
-### Phase 6 — FastAPI backend
+### Phase 6 — FastAPI backend  ✅ COMPLETE
 **Goal:** Working API that the frontend can call.
 
-Key endpoints (all require JWT auth except register/login):
+**Package:** `web/` — `app.py` (FastAPI factory), `auth.py` (JWT + bcrypt), `dependencies.py` (get_db, get_current_user), `routers/` (auth.py, papers.py, users.py, recommendations.py).
+
+**Auth:** JWT stored as HttpOnly cookie (`access_token`). `bcrypt` via `passlib`. `GET /api/auth/me` added to let the frontend probe the current session without exposing the token.
+
+**User activation:** `scripts/activate_user.py <email>` sets `is_active = 1` in the users table (registration creates accounts inactive by default).
+
+Key endpoints (all require JWT auth except register/login/me):
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/auth/register` | Create account; return JWT cookie |
-| POST | `/auth/login` | Verify credentials; return JWT cookie |
-| POST | `/auth/logout` | Clear cookie |
-| GET | `/papers/{arxiv_id}` | Metadata + LLM summary for detail pane |
-| GET | `/papers/search?q=` | Wraps arXiv Atom API; returns title/authors/abstract |
-| GET | `/users/me/papers` | List user's liked/disliked papers with metadata |
-| POST | `/users/me/papers` | Add paper to liked set; enqueue embed+recommend tasks |
-| PATCH | `/users/me/papers/{arxiv_id}` | Update liked flag (+1/0/-1) |
-| DELETE | `/users/me/papers/{arxiv_id}` | Remove from set |
-| POST | `/users/me/papers/import/ads` | Parse NASA ADS export for `arXiv:XXXX.XXXXX` lines; bulk-add |
-| GET | `/recommendations?window=day` | Compute (or return cached) ranked recommendations; raises 409 if too few liked papers |
-| GET | `/users/me/categories` | Get user's subscribed categories |
-| PUT | `/users/me/categories` | Update subscribed categories |
+| POST | `/api/auth/register` | Create account; return JWT cookie |
+| POST | `/api/auth/login` | Verify credentials; return JWT cookie |
+| POST | `/api/auth/logout` | Clear cookie |
+| GET | `/api/auth/me` | Return `{user_id, email}` for current session (used by frontend on load) |
+| GET | `/api/papers/{arxiv_id}` | Metadata + LLM summary for detail pane |
+| GET | `/api/papers/search?q=` | Wraps arXiv Atom API; returns title/authors/abstract |
+| GET | `/api/users/me/papers` | List user's liked/disliked papers with metadata |
+| POST | `/api/users/me/papers` | Add paper to liked set; enqueue embed tasks |
+| PATCH | `/api/users/me/papers/{arxiv_id}` | Upsert liked flag (+1/0/-1); enqueues meta fetch if new |
+| DELETE | `/api/users/me/papers/{arxiv_id}` | Remove from set |
+| POST | `/api/users/me/papers/import/ads` | Parse NASA ADS export for `arXiv:XXXX.XXXXX` lines; bulk-add |
+| GET | `/api/recommendations?window=day` | Compute (or return cached) ranked recommendations; raises 409 if too few liked papers |
 
 NASA ADS bulk import format: ADS custom export with format `%X` produces one `arXiv:XXXX.XXXXX` per line. Parse with `re.findall(r'arXiv:(\d{4}\.\d{4,5})', text)`.
 
 Security notes:
 - Passwords: `bcrypt` via `passlib`.
-- JWT: `python-jose` or `PyJWT`; short expiry (1 hour) with refresh token in separate HttpOnly cookie.
-- All SQL via parameterised queries (already the pattern in existing code).
+- JWT: HttpOnly cookie; 1-hour expiry.
+- All SQL via parameterised queries.
+- `_validate_arxiv_id()` called on all user-supplied arXiv IDs.
 - Rate-limit the paper import endpoint (max 500 IDs per request).
+
+Run with: `SECRET_KEY=<key> uvicorn web.app:app --reload --port 8000`
 
 ---
 
-### Phase 7 — React frontend
+### Phase 7 — React frontend  ✅ COMPLETE
 **Goal:** Working two-pane UI.
 
-Stack: Vite + React + TypeScript. No heavy component library — plain CSS or Tailwind.
+**Stack:** Vite + React + TypeScript + Tailwind CSS v4. Scaffolded at `web/frontend/`. Dev proxy: `/api` → `http://localhost:8000`.
 
-**Onboarding flow:**
-1. Register / login screen.
-2. Category selector (checkboxes for common arXiv categories).
-3. Paper seeding via: (a) paste arXiv IDs or NASA ADS export text; (b) search form.
-4. On submit: show "We're preparing your first recommendations" loading state.
-
-**Main view:**
+**File layout:**
 ```
-┌──────────────────────┬──────────────────────────────────────────────┐
-│ Recommendations      │ Title: ...                                    │
-│ [Day|Week|Month|Yr]  │ Authors: ...                                  │
-│ ─────────────────    │ Abstract: ...                                 │
-│ > Paper A  ████ 0.94 │                                               │
-│   Paper B  ███  0.91 │ Summary:                                      │
-│   Paper C  ██   0.88 │   Keywords: ...                               │
-│   ...                │   Scientific Questions: ...                   │
-│                      │   Data: ...                                   │
-│                      │   Methods: ...                                │
-│                      │   Results: ...                                │
-│                      │   Key takeaway: ...                           │
-│                      │                                               │
-│                      │  [✓ Relevant]  [✗ Not relevant]               │
-│                      │  arxiv.org/abs/XXXX.XXXXX ↗                  │
-└──────────────────────┴──────────────────────────────────────────────┘
+web/frontend/src/
+  api/
+    auth.ts              ← login, register, logout, getMe
+    papers.ts            ← getPaper
+    recommendations.ts   ← getRecommendations
+    userPapers.ts        ← getUserPapers, patchUserPaper
+  components/
+    MathText.tsx         ← KaTeX renderer: tokenises $$...$$ (display) and $...$ (inline)
+    PaperDetail.tsx      ← right pane: title/authors/abstract/summary + liked buttons + arXiv link
+    PaperRow.tsx         ← single row in recommendation list with exp(0.5·score) colour bar
+    RecommendationList.tsx ← left pane list with Day/Week/Month tabs
+    scoreColor.ts        ← shared scoreBar(score) → { pct, color, hue } utility
+  pages/
+    LibraryPage.tsx      ← /library route; two-column layout with liked paper management
+    LoginPage.tsx        ← login form
+    MainLayout.tsx       ← /recommendations; two-column layout; likedCache state
+    RegisterPage.tsx     ← register form
+  App.tsx                ← react-router routes; AuthContext provider
 ```
 
-Clicking Relevant/Not relevant calls `PATCH /users/me/papers/{arxiv_id}` and triggers a background recommend refresh (the next poll will show updated results).
+**Score bar colour:** `v = min(1, exp(0.5 * score))`; hue maps red (0°) → yellow (~60°) → green (120°). Shared via `scoreColor.ts`; used in both `PaperRow` (bar) and `PaperDetail` (score badge with tooltip).
 
-Stale recommendations: show spinner/banner while `status == "generating"`. Poll `/recommendations` every 30 seconds until fresh results appear.
+**KaTeX:** `katex` installed; CSS imported in `index.css`. `MathText` splits on `$$...$$` and `$...$` tokens; renders each via `katex.renderToString`.
 
-**Liked papers manager:** separate `/library` route; table of saved papers with remove buttons.
+**Abstract/Summary headings:** both displayed at `text-lg` with parenthetical subtitles ("(original)" / "(automatically generated)"). Seven standard summary headings (Keywords, Scientific Questions, Data, Methods, Results, Conclusions, Key takeaway) are bolded. Sections spaced with `space-y-[1.12em]`.
+
+**Main view (two-pane):**
+```
+┌─ w-96 ─────────────────┬─ flex-1 ──────────────────────────────────┐
+│ Recommendations        │ Title (23px)                               │
+│ [Day|Week|Month]       │ Authors · Date (text-base)                 │
+│ ──────────────────     │                                            │
+│ > Paper A  ████ 0.94   │ Abstract (original)                        │
+│   Paper B  ███  0.91   │   <KaTeX-rendered text>                    │
+│   Paper C  ██   0.88   │                                            │
+│   ...                  │ Summary (automatically generated)          │
+│                        │   **Keywords:** ...                        │
+│                        │   **Scientific Questions:** ...            │
+│                        │   ...                                      │
+│                        │                                            │
+│                        │  [✓ Relevant]  [✗ Not Relevant]            │
+│                        │  [arXiv ↗]  (blue)                        │
+└────────────────────────┴───────────────────────────────────────────┘
+```
+
+**Liked state:** `likedCache` map in `MainLayout` (and `LibraryPage`) prevents liked state from resetting when a paper is re-selected. `PaperDetail` has a second `useEffect` watching `initialLiked` to sync when the parent changes it externally.
+
+**Library page:** `/library` route; same two-column layout. Left column lists liked/disliked papers with toggle buttons (green for liked, red for disliked). Right column shows `PaperDetail`. Toggle button has `stopPropagation` to avoid triggering row selection.
+
+**Auth flow:** `AuthContext` wraps the app; `GET /api/auth/me` probed on load to restore session. Unauthenticated users are redirected to `/login`.
 
 ---
 
@@ -537,6 +576,6 @@ Stale recommendations: show spinner/banner while `status == "generating"`. Poll 
 - [x] Phase 2: app database (`appdb.py` + `scripts/migrate_legacy.py`) — **DONE** (`app.db` created with all 7 tables; 589 papers migrated from `embeddings_cache.db` + metadata cache; `APP_DB_PATH` added to `config.py`)
 - [x] Phase 3: ingest daemons — **DONE** (`daemons/meta_daemon.py` + `daemons/embed_daemon.py`; `fetch_arxiv_metadata` extended with `categories`/`published_date`; `fetch_arxiv_metadata_s2` extended with `published_date`; `claim_next_task` fixed with `RETURNING *`; `claim_next_tasks_batch` added; `META_INGEST_POLL_INTERVAL`, `EMBED_INGEST_POLL_INTERVAL`, `INGEST_META_BATCH_SIZE` added to config; `scripts/cron_daily.py` created)
 - [x] Phase 5: recommendation library — **DONE** (`arxiv_lib/recommend.py`; `get_recommendations`, `get_or_train_model`, `refresh_recommendations`, `recommendations_are_stale`; background negatives; `compute_model_hash` updated to include disliked IDs)
-- [ ] Phase 6: FastAPI backend — not started
-- [ ] Phase 7: React frontend — not started
+- [x] Phase 6: FastAPI backend — **DONE** (`web/` package; JWT HttpOnly cookie auth; all CRUD endpoints; `GET /api/auth/me`; upsert PATCH; `scripts/activate_user.py`)
+- [x] Phase 7: React frontend — **DONE** (`web/frontend/` Vite+React+TS+Tailwind; `MainLayout`, `LibraryPage`, `PaperDetail`, `PaperRow`, `RecommendationList`, `MathText`, `scoreColor`; KaTeX; exp(0.5·score) colour bar; two-column layouts; likedCache sync)
 - [ ] Phase 8: ops/deployment — not started
