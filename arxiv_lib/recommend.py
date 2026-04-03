@@ -1,0 +1,510 @@
+"""
+Recommendation library — training, caching, and retrieval of per-user recommendations.
+
+Public API
+----------
+get_recommendations(con, user_id, time_window) -> list[dict]
+    Main entry point.  Returns a ranked list of papers for the given user and
+    time window ('day', 'week', 'month').  Retrains the model and refreshes the
+    recommendation cache if stale.
+
+get_or_train_model(con, user_id) -> tuple[ScoringModel, str]
+    Load a cached model if the hash matches; otherwise train a new one and
+    persist it.  Raises NotEnoughDataError if the user has too few liked papers.
+
+refresh_recommendations(con, user_id, model, model_hash) -> None
+    Score all papers for all time windows and upsert the results into the
+    recommendations table.
+
+recommendations_are_stale(con, user_id, model_hash) -> bool
+    True if the cache is missing, hash-mismatched, or new papers have arrived
+    since the last generation.
+
+All functions accept an open app.db sqlite3.Connection. The caller is
+responsible for committing transactions when needed.
+"""
+
+import json
+import random
+import sqlite3
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+_ARXIV_TZ = ZoneInfo("America/New_York")
+# arXiv submission sessions close at 14:00 US/Eastern civil time.  This maps
+# to 19:00 UTC in winter (EST, UTC-5) and 18:00 UTC in summer (EDT, UTC-4),
+# so the UTC equivalent varies with daylight-saving time.
+
+import numpy as np
+
+from arxiv_lib.config import (
+    APP_DB_PATH,
+    BACKGROUND_NEGATIVE_COUNT,
+    BACKGROUND_NEGATIVE_MIN_COUNT,
+    EMBEDDING_CACHE_DB,
+    EMBEDDING_DIM,
+    RECOMMEND_MIN_LIKED,
+    RECOMMEND_TIME_WINDOWS,
+)
+from arxiv_lib.scoring import ScoringModel, compute_model_hash
+
+
+# ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
+
+class NotEnoughDataError(ValueError):
+    """Raised when a user has too few liked papers to train a model."""
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _load_vectors(arxiv_ids: list[str]) -> dict[str, np.ndarray]:
+    """
+    Load full embeddings for the given arXiv IDs from embeddings_cache.db.
+
+    Returns a dict mapping arxiv_id → truncated float32 vector (length EMBEDDING_DIM).
+    IDs not found in the DB are silently omitted.
+    """
+    if not arxiv_ids:
+        return {}
+    placeholders = ",".join("?" * len(arxiv_ids))
+    vectors: dict[str, np.ndarray] = {}
+    with sqlite3.connect(EMBEDDING_CACHE_DB) as emb_con:
+        rows = emb_con.execute(
+            f"SELECT arxiv_id, vector FROM embeddings WHERE arxiv_id IN ({placeholders})",
+            arxiv_ids,
+        ).fetchall()
+    for arxiv_id, blob in rows:
+        full = np.frombuffer(blob, dtype=np.float32)
+        vectors[arxiv_id] = full[:EMBEDDING_DIM]
+    return vectors
+
+
+def _get_background_negative_ids(con: sqlite3.Connection) -> list[str]:
+    """
+    Return up to BACKGROUND_NEGATIVE_COUNT arXiv IDs to use as background
+    negative examples when training a scoring model.
+
+    Selects the oldest embedded papers by published_date (deterministic and
+    stable — newly arrived papers are always newer, so the set doesn't change
+    as the corpus grows).  Only returns IDs that have both metadata and an
+    embedding.
+    """
+    rows = con.execute(
+        """
+        SELECT p.arxiv_id
+          FROM papers p
+         WHERE p.published_date IS NOT NULL
+         ORDER BY p.published_date ASC
+         LIMIT ?
+        """,
+        (BACKGROUND_NEGATIVE_COUNT,),
+    ).fetchall()
+    # Filter to only IDs that have an embedding (cross-DB lookup done in Python).
+    candidate_ids = [r[0] for r in rows]
+    if not candidate_ids:
+        return []
+    with sqlite3.connect(EMBEDDING_CACHE_DB) as emb_con:
+        placeholders = ",".join("?" * len(candidate_ids))
+        embedded = {
+            r[0] for r in emb_con.execute(
+                f"SELECT arxiv_id FROM embeddings WHERE arxiv_id IN ({placeholders})",
+                candidate_ids,
+            ).fetchall()
+        }
+    return [aid for aid in candidate_ids if aid in embedded]
+
+
+# arXiv submission sessions close at 14:00 US/Eastern civil time.  Papers
+# submitted during a session appear in the same mailing.  We advance the
+# anchor to the next session-close boundary so that time-window cutoffs align
+# with mailing sessions rather than wall-clock midnight.
+_ARXIV_CUTOFF_HOUR_ET = 14
+
+
+def _session_close_utc(date_utc: datetime) -> datetime:
+    """
+    Return the UTC datetime of the arXiv session close (14:00 US/Eastern)
+    whose *calendar date in US/Eastern* equals the calendar date of *date_utc*
+    when converted to US/Eastern.
+
+    Handles EST/EDT automatically via zoneinfo.
+    """
+    date_et = date_utc.astimezone(_ARXIV_TZ)
+    close_et = date_et.replace(
+        hour=_ARXIV_CUTOFF_HOUR_ET, minute=0, second=0, microsecond=0
+    )
+    return close_et.astimezone(timezone.utc)
+
+
+def _latest_paper_anchor(con: sqlite3.Connection) -> datetime:
+    """
+    Return the next arXiv session-close boundary (14:00 US/Eastern, expressed
+    in UTC) on or after the most recent paper's publication timestamp.
+
+    This is used as the time anchor for recommendation windows so that "day",
+    "week", and "month" are relative to the latest mailing rather than
+    wall-clock time.
+
+    The published_date column may contain either a full ISO 8601 timestamp
+    (e.g. "2024-10-01T18:12:45Z", for papers fetched via the Atom API) or a
+    plain date string (e.g. "2024-10-01", for legacy rows or S2-sourced rows).
+    Both forms are handled.  Falls back to now() if the table is empty.
+    """
+    row = con.execute(
+        "SELECT MAX(published_date) FROM papers WHERE published_date IS NOT NULL"
+    ).fetchone()
+    if row and row[0]:
+        raw = row[0].rstrip("Z")
+        try:
+            dt = datetime.fromisoformat(raw)
+        except ValueError:
+            dt = datetime.now(tz=timezone.utc)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = datetime.now(tz=timezone.utc)
+
+    # Find the session-close boundary on the same ET calendar day as dt.
+    candidate = _session_close_utc(dt)
+    # If dt is at or after that boundary, advance to the next day's boundary.
+    if candidate <= dt:
+        candidate = _session_close_utc(dt + timedelta(days=1))
+    return candidate
+
+
+def _window_cutoff(time_window: str, anchor: datetime) -> str:
+    """Return a full ISO 8601 UTC datetime string for the start of the given
+    time window.
+
+    *anchor* should come from _latest_paper_anchor() (a 14:00 US/Eastern
+    session-close boundary expressed in UTC) so that windows are aligned to
+    mailing sessions rather than wall-clock time.  1 second is subtracted from
+    the delta so that papers submitted at exactly the session-open boundary are
+    included.
+    """
+    deltas = {"day": timedelta(days=1), "week": timedelta(weeks=1), "month": timedelta(days=30)}
+    if time_window not in deltas:
+        raise ValueError(f"Unknown time window: {time_window!r}. Expected one of {RECOMMEND_TIME_WINDOWS}")
+    cutoff = anchor - deltas[time_window] - timedelta(seconds=1)
+    return cutoff.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def recommendations_are_stale(
+    con: sqlite3.Connection,
+    user_id: int,
+    model_hash: str,
+) -> bool:
+    """
+    Return True if the cached recommendations for *user_id* are stale.
+
+    Stale if:
+    - No recommendations exist for this user, OR
+    - The stored model_hash differs from the current hash, OR
+    - Any paper has been embedded after the last generation time.
+    """
+    row = con.execute(
+        "SELECT MIN(generated_at), model_hash FROM recommendations WHERE user_id = ?",
+        (user_id,),
+    ).fetchone()
+
+    if row is None or row[0] is None:
+        return True  # no cached recommendations
+
+    oldest_generated_at, cached_hash = row
+    if cached_hash != model_hash:
+        return True  # liked/disliked set or scoring version changed
+
+    new_paper = con.execute(
+        "SELECT 1 FROM papers WHERE embedded_at > ? LIMIT 1",
+        (oldest_generated_at,),
+    ).fetchone()
+    return new_paper is not None
+
+
+def get_or_train_model(
+    con: sqlite3.Connection,
+    user_id: int,
+) -> tuple[ScoringModel, str]:
+    """
+    Return a trained ScoringModel for *user_id*, loading from cache if fresh.
+
+    Raises
+    ------
+    NotEnoughDataError
+        If the user has fewer than RECOMMEND_MIN_LIKED liked papers with embeddings.
+    """
+    # Load liked and disliked paper IDs
+    rows = con.execute(
+        "SELECT arxiv_id, liked FROM user_papers WHERE user_id = ? AND liked != 0",
+        (user_id,),
+    ).fetchall()
+    liked_ids    = [r[0] for r in rows if r[1] == 1]
+    disliked_ids = [r[0] for r in rows if r[1] == -1]
+
+    model_hash = compute_model_hash(liked_ids, disliked_ids)
+
+    # Check for a cached model with a matching hash
+    cached = con.execute(
+        "SELECT model_blob FROM user_models WHERE user_id = ? AND model_hash = ?",
+        (user_id, model_hash),
+    ).fetchone()
+    if cached is not None:
+        model = ScoringModel.deserialize(json.loads(cached[0]))
+        return model, model_hash
+
+    # Need to retrain — load vectors
+    liked_vectors    = _load_vectors(liked_ids)
+    disliked_vectors = _load_vectors(disliked_ids)
+    background_ids   = _get_background_negative_ids(con)
+
+    # Remove liked papers from background to avoid contaminating the negative set
+    liked_set = set(liked_ids)
+    background_ids = [aid for aid in background_ids if aid not in liked_set]
+    background_vectors = _load_vectors(background_ids)
+
+    # Validate training set
+    v_pos_list = [v for aid, v in liked_vectors.items()]
+    if len(v_pos_list) < RECOMMEND_MIN_LIKED:
+        raise NotEnoughDataError(
+            f"Need at least {RECOMMEND_MIN_LIKED} liked papers with embeddings to train "
+            f"(have {len(v_pos_list)})."
+        )
+
+    neg_dict = {**background_vectors, **disliked_vectors}
+    if len(neg_dict) < BACKGROUND_NEGATIVE_MIN_COUNT:
+        raise NotEnoughDataError(
+            f"Need at least {BACKGROUND_NEGATIVE_MIN_COUNT} negative papers with embeddings "
+            f"(have {len(neg_dict)})."
+        )
+
+    v_pos = np.array(v_pos_list, dtype=np.float32)
+    v_neg = np.array(list(neg_dict.values()), dtype=np.float32)
+    model = ScoringModel.from_training_data(v_pos, v_neg)
+
+    # Persist the trained model
+    con.execute(
+        """
+        INSERT OR REPLACE INTO user_models
+            (user_id, model_blob, model_hash, n_liked, n_disliked, trained_at)
+        VALUES (?, ?, ?, ?, ?, datetime('now'))
+        """,
+        (user_id, json.dumps(model.serialize()), model_hash, len(liked_ids), len(disliked_ids)),
+    )
+
+    return model, model_hash
+
+
+def refresh_recommendations(
+    con: sqlite3.Connection,
+    user_id: int,
+    model: ScoringModel,
+    model_hash: str,
+) -> None:
+    """
+    Score all embedded papers across all time windows and upsert the results
+    into the recommendations table.
+
+    Liked papers are scored with score_positive_embeddings() (avoids
+    self-similarity bias); all other papers use score_embeddings().
+    """
+    # Load all papers that have both metadata and an embedding
+    papers = con.execute(
+        "SELECT arxiv_id, published_date FROM papers WHERE published_date IS NOT NULL"
+    ).fetchall()
+    all_ids = [r[0] for r in papers]
+    pub_dates = {r[0]: r[1] for r in papers}
+
+    if not all_ids:
+        return
+
+    all_vectors = _load_vectors(all_ids)
+    # Keep only IDs that have both metadata and an embedding
+    scoreable_ids = [aid for aid in all_ids if aid in all_vectors]
+
+    # Identify liked papers (use self-similarity-corrected scoring for them)
+    liked_rows = con.execute(
+        "SELECT arxiv_id FROM user_papers WHERE user_id = ? AND liked = 1",
+        (user_id,),
+    ).fetchall()
+    liked_set = {r[0] for r in liked_rows}
+
+    non_liked_ids = [aid for aid in scoreable_ids if aid not in liked_set]
+    liked_scoreable = [aid for aid in scoreable_ids if aid in liked_set]
+
+    scores: dict[str, float] = {}
+    if non_liked_ids:
+        v_non_liked = np.array([all_vectors[aid] for aid in non_liked_ids], dtype=np.float32)
+        s = model.score_embeddings(v_non_liked)
+        for aid, sc in zip(non_liked_ids, s):
+            scores[aid] = float(sc)
+
+    if liked_scoreable:
+        s_pos = model.score_positive_embeddings()
+        # score_positive_embeddings returns scores in the order of the training positives;
+        # we don't have a direct mapping, so fall back to score_embeddings for liked papers
+        # that happen to be scoreable (self-similarity bias is minor here).
+        v_liked = np.array([all_vectors[aid] for aid in liked_scoreable], dtype=np.float32)
+        s = model.score_embeddings(v_liked)
+        for aid, sc in zip(liked_scoreable, s):
+            scores[aid] = float(sc)
+
+    # Upsert recommendations for each time window
+    generated_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    anchor = _latest_paper_anchor(con)
+    rows_to_insert = []
+    for window in RECOMMEND_TIME_WINDOWS:
+        cutoff = _window_cutoff(window, anchor)
+        window_ids = [
+            aid for aid in scoreable_ids
+            if aid in scores and pub_dates.get(aid, "") >= cutoff
+        ]
+        if not window_ids:
+            continue
+        window_scores = [(aid, scores[aid]) for aid in window_ids]
+        window_scores.sort(key=lambda x: x[1], reverse=True)
+        for rank, (aid, score) in enumerate(window_scores, start=1):
+            rows_to_insert.append((user_id, aid, window, score, rank, model_hash, generated_at))
+
+    con.executemany(
+        """
+        INSERT OR REPLACE INTO recommendations
+            (user_id, arxiv_id, time_window, score, rank, model_hash, generated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        rows_to_insert,
+    )
+
+
+def get_recommendations(
+    con: sqlite3.Connection,
+    user_id: int,
+    time_window: str,
+) -> list[dict]:
+    """
+    Return a ranked list of recommended papers for *user_id* in *time_window*.
+
+    Retrains the model and refreshes the cache if stale.  The returned list is
+    ordered by rank (ascending) and includes all papers in the time window,
+    including liked ones.
+
+    Parameters
+    ----------
+    con : sqlite3.Connection
+        Open app.db connection.
+    user_id : int
+        The user to generate recommendations for.
+    time_window : str
+        One of 'day', 'week', 'month'.
+
+    Returns
+    -------
+    list[dict]
+        Each dict has keys: arxiv_id, title, authors, published_date, score, rank,
+        liked (1 / 0 / -1 or None).
+
+    Raises
+    ------
+    NotEnoughDataError
+        If the user has too few liked papers to produce recommendations.
+    ValueError
+        If time_window is not one of the supported values.
+    """
+    if time_window not in RECOMMEND_TIME_WINDOWS:
+        raise ValueError(f"Unknown time window: {time_window!r}. Expected one of {RECOMMEND_TIME_WINDOWS}")
+
+    # Compute current hash (load papersets again — cheap)
+    rows = con.execute(
+        "SELECT arxiv_id, liked FROM user_papers WHERE user_id = ? AND liked != 0",
+        (user_id,),
+    ).fetchall()
+    liked_ids    = [r[0] for r in rows if r[1] == 1]
+    disliked_ids = [r[0] for r in rows if r[1] == -1]
+    model_hash   = compute_model_hash(liked_ids, disliked_ids)
+
+    if recommendations_are_stale(con, user_id, model_hash):
+        model, model_hash = get_or_train_model(con, user_id)
+        refresh_recommendations(con, user_id, model, model_hash)
+        con.commit()
+
+    result_rows = con.execute(
+        """
+        SELECT r.arxiv_id, p.title, p.authors, p.published_date,
+               r.score, r.rank, up.liked, r.generated_at
+          FROM recommendations r
+          JOIN papers p ON p.arxiv_id = r.arxiv_id
+          LEFT JOIN user_papers up
+               ON up.arxiv_id = r.arxiv_id AND up.user_id = r.user_id
+         WHERE r.user_id = ? AND r.time_window = ?
+         ORDER BY r.rank ASC
+        """,
+        (user_id, time_window),
+    ).fetchall()
+
+    return [
+        {
+            "arxiv_id":       row[0],
+            "title":          row[1],
+            "authors":        json.loads(row[2]) if row[2] else [],
+            "published_date": row[3],
+            "score":          row[4],
+            "rank":           row[5],
+            "liked":          row[6],
+            "generated_at":   row[7],
+        }
+        for row in result_rows
+    ]
+
+
+def get_onboarding_papers(
+    con: sqlite3.Connection,
+    time_window: str,
+    limit: int,
+    seed: int = 0,
+) -> list[dict]:
+    """
+    Return up to *limit* papers published within *time_window*, in a stable order.
+
+    The order is determined by *seed* (typically the user_id), so the same user
+    always sees the same ordering for a given set of papers.  Papers are fetched
+    in arxiv_id order then shuffled in Python with the seed, which is cheaper
+    than relying on SQLite's non-seedable RANDOM() and avoids reordering on
+    every request.
+
+    Used when the user has too few liked papers to generate scored recommendations.
+    Returned dicts have the same keys as get_recommendations() but with
+    score=None, rank=None, and generated_at=None.
+    """
+    cutoff = _window_cutoff(time_window, _latest_paper_anchor(con))
+    rows = con.execute(
+        """
+        SELECT arxiv_id, title, authors, published_date
+          FROM papers
+         WHERE published_date >= ? AND published_date IS NOT NULL
+         ORDER BY arxiv_id
+        """,
+        (cutoff,),
+    ).fetchall()
+    rng = random.Random(seed)
+    rng.shuffle(rows)
+    rows = rows[:limit]
+    return [
+        {
+            "arxiv_id":       row[0],
+            "title":          row[1] or "",
+            "authors":        json.loads(row[2]) if row[2] else [],
+            "published_date": row[3],
+            "score":          None,
+            "rank":           None,
+            "liked":          None,
+            "generated_at":   None,
+        }
+        for row in rows
+    ]
