@@ -25,8 +25,7 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from arxiv_lib.appdb import init_app_db, get_connection
-from arxiv_lib.config import APP_DB_PATH, EMBEDDING_CACHE_DB
-from arxiv_lib.ingest import load_from_arxiv_metadata_cache
+from arxiv_lib.config import APP_DB_PATH, EMBEDDING_CACHE_DB, METADATA_CACHE_DIR
 
 
 def load_all_embedding_ids(embedding_db_path: str) -> list[str]:
@@ -34,6 +33,30 @@ def load_all_embedding_ids(embedding_db_path: str) -> list[str]:
     with sqlite3.connect(embedding_db_path) as con:
         rows = con.execute("SELECT arxiv_id FROM embeddings ORDER BY arxiv_id").fetchall()
     return [row[0] for row in rows]
+
+
+def _load_metadata_from_json(arxiv_ids: list[str]) -> dict:
+    """Read metadata from the legacy monthly JSON files in METADATA_CACHE_DIR.
+
+    Used only by this migration script to bootstrap app.db from the old cache.
+    All other code should use load_from_arxiv_metadata_cache() (which reads from
+    app.db) or write_to_arxiv_metadata_cache() (which writes to app.db).
+    """
+    result = {}
+    by_month: dict[str, list[str]] = {}
+    for aid in arxiv_ids:
+        month = aid.split(".")[0]
+        by_month.setdefault(month, []).append(aid)
+    for month, ids in by_month.items():
+        cache_file = os.path.join(METADATA_CACHE_DIR, f"{month}.json")
+        if not os.path.exists(cache_file):
+            continue
+        with open(cache_file, "r", encoding="utf-8") as f:
+            month_cache = json.load(f)
+        for aid in ids:
+            if aid in month_cache:
+                result[aid] = month_cache[aid]
+    return result
 
 
 def migrate(app_db_path: str, embedding_db_path: str) -> None:
@@ -44,8 +67,8 @@ def migrate(app_db_path: str, embedding_db_path: str) -> None:
     arxiv_ids = load_all_embedding_ids(embedding_db_path)
     print(f"  Found {len(arxiv_ids)} embedded papers.")
 
-    print("Loading metadata from arxiv_metadata_cache/ ...")
-    metadata = load_from_arxiv_metadata_cache(arxiv_ids)
+    print("Loading metadata from arxiv_metadata_cache/ (JSON files) ...")
+    metadata = _load_metadata_from_json(arxiv_ids)
     print(f"  Metadata found for {len(metadata)} / {len(arxiv_ids)} papers.")
 
     rows = []

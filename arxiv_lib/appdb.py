@@ -92,8 +92,8 @@ CREATE TABLE IF NOT EXISTS recommendations (
 CREATE INDEX IF NOT EXISTS recommendations_user_window
     ON recommendations(user_id, time_window, rank);
 
--- Task queue (shared by ingest and recommend daemons)
--- type:    'embed' | 'recommend'
+-- Task queue (shared by meta, embed, and recommend daemons)
+-- type:    'fetch_meta' | 'embed' | 'recommend'
 -- payload: JSON, e.g. {"arxiv_id": "2309.06676"} or {"user_id": 3}
 -- status:  'pending' | 'running' | 'done' | 'failed'
 CREATE TABLE IF NOT EXISTS task_queue (
@@ -196,9 +196,9 @@ def claim_next_task(con: sqlite3.Connection, task_type: str) -> sqlite3.Row | No
         The claimed task row (with id, type, payload, attempts, …), or None if
         no pending tasks of the requested type exist.
     """
-    # SQLite does not support SELECT … FOR UPDATE, so we use a sub-query with
-    # ORDER BY + LIMIT 1 inside the UPDATE to get atomic claim semantics.
-    con.execute(
+    # UPDATE … RETURNING * is atomic and avoids a second SELECT.
+    # Requires SQLite ≥ 3.35 (ships with Python 3.12+).
+    row = con.execute(
         """
         UPDATE task_queue
            SET status     = 'running',
@@ -210,14 +210,54 @@ def claim_next_task(con: sqlite3.Connection, task_type: str) -> sqlite3.Row | No
                 ORDER BY created_at
                 LIMIT 1
          )
+         RETURNING *
         """,
-        (task_type,),
-    )
-    row = con.execute(
-        "SELECT * FROM task_queue WHERE type = ? AND status = 'running' AND started_at >= datetime('now', '-5 seconds') ORDER BY started_at DESC LIMIT 1",
         (task_type,),
     ).fetchone()
     return row
+
+
+def claim_next_tasks_batch(
+    con: sqlite3.Connection,
+    task_type: str,
+    limit: int,
+) -> list[sqlite3.Row]:
+    """
+    Atomically claim up to *limit* pending tasks of the given type.
+
+    Sets status='running', increments attempts, records started_at for each.
+
+    Parameters
+    ----------
+    con : sqlite3.Connection
+        Open app.db connection.  Caller should commit after this call.
+    task_type : str
+        'fetch_meta', 'embed', or 'recommend'.
+    limit : int
+        Maximum number of tasks to claim in one call.
+
+    Returns
+    -------
+    list[sqlite3.Row]
+        The claimed task rows, or an empty list if no pending tasks exist.
+    """
+    rows = con.execute(
+        """
+        UPDATE task_queue
+           SET status     = 'running',
+               attempts   = attempts + 1,
+               started_at = datetime('now')
+         WHERE id IN (
+               SELECT id FROM task_queue
+                WHERE type = ? AND status = 'pending'
+                ORDER BY created_at ASC
+                LIMIT ?
+         )
+         RETURNING *
+        """,
+        (task_type, limit),
+    ).fetchall()
+    return rows
 
 
 def complete_task(con: sqlite3.Connection, task_id: int) -> None:

@@ -32,6 +32,7 @@ import numpy as np
 from arxiv_lib.config import (
     EMBEDDING_CACHE_DB,
     EMBEDDING_CACHE_FILE,
+    APP_DB_PATH,
     METADATA_CACHE_DIR,
     SOURCE_CACHE_DIR,
     SUMMARY_CACHE_DIR,
@@ -103,58 +104,66 @@ def save_embedding_cache(cache: dict[str, np.ndarray]) -> None:
 
 def load_from_arxiv_metadata_cache(arxiv_ids: list[str]) -> dict:
     """
-    Loads metadata for the given arXiv IDs from the monthly cache files in
-    METADATA_CACHE_DIR.
+    Returns metadata for the given arXiv IDs from the ``papers`` table in app.db.
 
-    Returns a dict mapping arXiv ID to metadata dict for all IDs that were
-    found in the cache.  IDs that are not found are omitted from the result.
+    IDs not present in the database are omitted from the result.
     """
-    result = {}
+    if len(arxiv_ids) == 0:
+        return {}
 
-    by_month: dict[str, list[str]] = {}
-    for aid in arxiv_ids:
-        month = aid.split(".")[0]
-        by_month.setdefault(month, []).append(aid)
+    from arxiv_lib.appdb import get_connection
+    with get_connection(APP_DB_PATH) as con:
+        placeholders = ",".join("?" * len(arxiv_ids))
+        rows = con.execute(
+            f"SELECT arxiv_id, title, abstract, authors "
+            f"FROM papers WHERE arxiv_id IN ({placeholders})",
+            list(arxiv_ids),
+        ).fetchall()
 
-    for month, ids in by_month.items():
-        cache_file = os.path.join(METADATA_CACHE_DIR, f"{month}.json")
-        if not os.path.exists(cache_file):
-            continue
-        with open(cache_file, "r", encoding="utf-8") as f:
-            month_cache = json.load(f)
-        for aid in ids:
-            if aid in month_cache:
-                result[aid] = month_cache[aid]
-
-    return result
+    return {
+        row["arxiv_id"]: {
+            "title":    row["title"]    or "",
+            "abstract": row["abstract"] or "",
+            "authors":  json.loads(row["authors"]) if row["authors"] else [],
+        }
+        for row in rows
+    }
 
 
 def write_to_arxiv_metadata_cache(metadata_dict: dict[str, dict]) -> None:
     """
-    Writes the given metadata dict to the monthly cache files in METADATA_CACHE_DIR.
+    Upsert metadata for the given arXiv IDs into the ``papers`` table in app.db.
 
-    The input dict should map arXiv ID to metadata dict.  Each ID will be written
-    to the appropriate monthly cache file based on its prefix (e.g. "2309" from
-    "2309.06676").  Existing cache files will be updated; new files will be created
-    as needed.
+    Only the metadata columns (title, abstract, authors) are written;
+    published_date and categories are left NULL if not present in the input.
+    Uses INSERT OR REPLACE so re-fetching a paper updates its stored metadata.
+
+    The input dict should map arXiv ID to a dict with at least the keys
+    ``title``, ``authors`` (list), and ``abstract``.
     """
-    by_month: dict[str, dict[str, dict]] = {}
-    for aid, meta in metadata_dict.items():
-        month = aid.split(".")[0]
-        by_month.setdefault(month, {})[aid] = meta
-
-    for month, entries in by_month.items():
-        cache_file = os.path.join(METADATA_CACHE_DIR, f"{month}.json")
-        if os.path.exists(cache_file):
-            with open(cache_file, "r", encoding="utf-8") as f:
-                month_cache = json.load(f)
-        else:
-            month_cache = {}
-
-        month_cache.update(entries)
-
-        with open(cache_file, "w", encoding="utf-8") as f:
-            json.dump(month_cache, f, ensure_ascii=False, indent=2)
+    if not metadata_dict:
+        return
+    from arxiv_lib.appdb import get_connection
+    rows = [
+        (
+            aid,
+            meta.get("title"),
+            meta.get("abstract"),
+            json.dumps(meta["authors"]) if "authors" in meta else None,
+            meta.get("published_date"),
+            json.dumps(meta["categories"]) if "categories" in meta else None,
+        )
+        for aid, meta in metadata_dict.items()
+    ]
+    with get_connection(APP_DB_PATH) as con:
+        con.executemany(
+            """
+            INSERT OR REPLACE INTO papers
+                (arxiv_id, title, abstract, authors, published_date, categories)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
 
 
 def get_arxiv_metadata(arxiv_ids: list[str],
@@ -164,7 +173,7 @@ def get_arxiv_metadata(arxiv_ids: list[str],
     Returns cached metadata for the given arXiv IDs, fetching and caching any
     that are not already stored.
 
-    Metadata is persisted in per-month JSON files inside METADATA_CACHE_DIR.
+    Metadata is persisted in the ``papers`` table in app.db.
 
     Parameters
     ----------
@@ -217,12 +226,14 @@ def get_arxiv_metadata(arxiv_ids: list[str],
 
 def fetch_arxiv_metadata(arxiv_ids: list[str]) -> dict[str, dict]:
     """
-    Returns title, authors, and abstract for each arXiv ID via the official
-    arXiv Atom API (batched).
+    Returns metadata for each arXiv ID via the official arXiv Atom API (batched).
+
+    Returned dict keys per paper: title, authors, abstract, published_date, categories.
 
     Raises RuntimeError on unrecoverable HTTP failure.
     """
     _NS = "http://www.w3.org/2005/Atom"
+    _ARXIV_NS = "http://arxiv.org/schemas/atom"
     _logger = logging.getLogger(__name__)
 
     def _is_retryable(exc: BaseException) -> bool:
@@ -260,9 +271,11 @@ def fetch_arxiv_metadata(arxiv_ids: list[str]) -> dict[str, dict]:
             continue
         aid = re.sub(r"v\d+$", "", id_el.text.strip().split("/abs/")[-1])
 
-        title_el   = entry.find(f"{{{_NS}}}title")
-        summary_el = entry.find(f"{{{_NS}}}summary")
-        author_els = entry.findall(f"{{{_NS}}}author")
+        title_el     = entry.find(f"{{{_NS}}}title")
+        summary_el   = entry.find(f"{{{_NS}}}summary")
+        author_els   = entry.findall(f"{{{_NS}}}author")
+        published_el = entry.find(f"{{{_NS}}}published")
+        category_els = entry.findall(f"{{{_NS}}}category")
 
         title    = " ".join((title_el.text   or "").split()) if title_el   is not None else ""
         abstract = " ".join((summary_el.text or "").split()) if summary_el is not None else ""
@@ -272,7 +285,24 @@ def fetch_arxiv_metadata(arxiv_ids: list[str]) -> dict[str, dict]:
             if name_el is not None and name_el.text:
                 authors.append(name_el.text.strip())
 
-        results[aid] = {"title": title, "authors": authors, "abstract": abstract}
+        # published: "2024-10-01T00:00:00Z" → "2024-10-01"
+        published_date = None
+        if published_el is not None and published_el.text:
+            published_date = published_el.text.strip()[:10]
+
+        # categories: term attribute on each <category> element
+        categories = [
+            el.get("term", "") for el in category_els
+            if el.get("term", "")
+        ]
+
+        results[aid] = {
+            "title": title,
+            "authors": authors,
+            "abstract": abstract,
+            "published_date": published_date,
+            "categories": categories,
+        }
 
     return results
 
@@ -324,8 +354,10 @@ def fetch_arxiv_metadata_s2(
     s2_api_key: str | None = None,
 ) -> dict[str, dict]:
     """
-    Returns title, authors, and abstract for each arXiv ID via the Semantic
-    Scholar Graph batch API.
+    Returns title, authors, abstract, and published_date for each arXiv ID via
+    the Semantic Scholar Graph batch API.  `published_date` is YYYY-MM-DD when
+    available from S2, or a 4-digit year string as fallback.  May be None for
+    very old papers.
 
     Rate limits:
       - Without key : ~1 req/sec, 5,000 req/day
@@ -334,7 +366,7 @@ def fetch_arxiv_metadata_s2(
     Raises RuntimeError on unrecoverable HTTP failure.
     """
     S2_BATCH_URL  = "https://api.semanticscholar.org/graph/v1/paper/batch"
-    S2_FIELDS     = "title,authors,abstract,externalIds"
+    S2_FIELDS     = "title,authors,abstract,externalIds,publicationDate,year"
     S2_BATCH_SIZE = 500
 
     headers: dict[str, str] = {"User-Agent": USER_AGENT}
@@ -383,7 +415,16 @@ def fetch_arxiv_metadata_s2(
             title    = " ".join((paper.get("title")    or "").split())
             abstract = " ".join((paper.get("abstract") or "").split())
             authors  = [a["name"] for a in (paper.get("authors") or [])]
-            results[arxiv_id] = {"title": title, "authors": authors, "abstract": abstract}
+            # publicationDate is YYYY-MM-DD when available; fall back to year-only string
+            pub_date: str | None = paper.get("publicationDate") or None
+            if pub_date is None and paper.get("year"):
+                pub_date = str(paper["year"])
+            results[arxiv_id] = {
+                "title": title,
+                "authors": authors,
+                "abstract": abstract,
+                "published_date": pub_date,
+            }
 
     return results
 

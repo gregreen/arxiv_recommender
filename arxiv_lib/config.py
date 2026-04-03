@@ -55,6 +55,13 @@ RBF_PCA_COMPONENTS = 8
 # even if their liked-paper set has changed.
 RECOMMEND_MIN_RETRAIN_INTERVAL = 3600
 
+# How long the ingest daemons sleep between polls when the task queue is empty.
+META_INGEST_POLL_INTERVAL = 5   # seconds
+EMBED_INGEST_POLL_INTERVAL = 0.1 # seconds
+
+# Maximum number of 'fetch_meta' tasks claimed and processed in one S2 batch call.
+INGEST_META_BATCH_SIZE = 256
+
 # ---------------------------------------------------------------------------
 # LLM / embedding model identifiers
 # ---------------------------------------------------------------------------
@@ -89,3 +96,8 @@ ARXIV_CATEGORIES = {
     "quant-ph",
     "stat.ML",
 }
+
+# Categories fetched automatically by scripts/cron_daily.py each day.
+# Use top-level categories (e.g. "astro-ph") to ingest all sub-categories via
+# the arXiv new-submissions listing, or specific sub-categories for finer control.
+DAILY_INGEST_CATEGORIES: list[str] = ["astro-ph"]

@@ -52,15 +52,15 @@ The goal is to turn this into a multi-user web service.
               arxiv_metadata_cache/  (read by web server, written by ingest daemon)
               arxiv_source_cache/    (written and read by ingest daemon; expendable)
 
-  Ingest Daemon  (daemons/ingest_daemon.py)
-    Polls task_queue WHERE type='embed'
-    Per paper: get_arxiv_metadata → summarize_arxiv_paper → gen_arxiv_embedding
-    On completion: inserts row into papers table; enqueues 'recommend' tasks for relevant users
+  Meta Daemon  (daemons/meta_daemon.py)
+    Polls task_queue WHERE type='fetch_meta'
+    Claims up to INGEST_META_BATCH_SIZE tasks at once
+    Calls get_arxiv_metadata() for the batch (S2 API + arXiv Atom fallback)
+    On success: writes metadata to papers table; enqueues 'embed' task per paper
 
-  Recommend Daemon  (daemons/recommend_daemon.py)
-    Polls task_queue WHERE type='recommend'
-    Per user: loads liked+disliked paper vectors, scores all candidate papers,
-              persists ranked results and fitted model to app.db
+  Embed Daemon  (daemons/embed_daemon.py)
+    Polls task_queue WHERE type='embed'
+    Per paper: summarize_arxiv_paper (LLM) → gen_arxiv_embedding → save to embeddings_cache.db
 
   Daily cron  (scripts/cron_daily.py)
     Runs fetch_latest_mailing_ids() for all subscribed categories
@@ -168,8 +168,8 @@ CREATE TABLE recommendations (
 );
 CREATE INDEX recommendations_user_window ON recommendations(user_id, time_window, rank);
 
--- Task queue (shared by both daemons)
--- type: 'embed' | 'recommend'
+-- Task queue (shared by all daemons)
+-- type: 'fetch_meta' | 'embed' | 'recommend'
 -- payload: JSON, e.g. {"arxiv_id": "2309.06676"} or {"user_id": 3, "time_window": "all"}
 -- status: 'pending' | 'running' | 'done' | 'failed'
 -- attempts: retry counter (max 3)
@@ -238,6 +238,10 @@ SCORING_VERSION = "v1"        # Bump when algorithm changes to invalidate all ca
 RBF_GAMMAS = np.logspace(-6, 6, num=6, base=2)
 RBF_PCA_COMPONENTS = 4
 RECOMMEND_MIN_RETRAIN_INTERVAL = 3600   # seconds; don't retrain more often than this
+DAILY_INGEST_CATEGORIES = ["astro-ph"]  # categories fetched by cron_daily.py each day
+META_INGEST_POLL_INTERVAL = 5           # seconds between meta daemon polls (S2 is rate-limited)
+EMBED_INGEST_POLL_INTERVAL = 0.1        # seconds between embed daemon polls (LLM is the bottleneck)
+INGEST_META_BATCH_SIZE = 256            # max tasks claimed per S2 batch call
 ```
 
 **Model serialization:** `ScoringModel.serialize()` returns a JSON-serialisable dict (all numpy arrays converted via `.tolist()`). Store as a JSON TEXT string in `user_models.model_blob`. Reconstruct with `ScoringModel.deserialize(json.loads(blob))`.
@@ -268,7 +272,8 @@ arxiv_recommender/
 
   daemons/
     __init__.py
-    ingest_daemon.py          ← polls task_queue for 'embed' tasks
+    meta_daemon.py            ← polls for 'fetch_meta' tasks; batched S2 metadata fetch → enqueues 'embed'
+    embed_daemon.py           ← polls for 'embed' tasks; LLM summarise + embedding generation
     recommend_daemon.py       ← polls task_queue for 'recommend' tasks
 
   web/
@@ -293,8 +298,8 @@ arxiv_recommender/
   recommend.py                ← working CLI recommendation script (reference usage of ScoringModel)  [DONE]
 
   scripts/
-    migrate_legacy.py         ← one-time: populate papers table from existing caches  [TODO]
-    cron_daily.py             ← called by cron/systemd; enqueues embed tasks for today's mailing  [TODO]
+    migrate_legacy.py         ← one-time: populate papers table from existing caches  [DONE]
+    cron_daily.py             ← called by cron/systemd; enqueues embed tasks for today's mailing  [DONE]
 ```
 
 ---
@@ -304,7 +309,7 @@ arxiv_recommender/
 ### Phase 1 — Project structure + library refactor  ✅ COMPLETE
 
 - `arxiv_lib/config.py`, `ingest.py`, `scoring.py`, `__init__.py` created.
-- `experiments/arxiv_embedding.py` is now a thin shim that re-exports from `arxiv_lib` and retains the `*_example()` exploration functions.
+- `experiments/arxiv_embedding.py` deleted (stale).
 
 ---
 
@@ -315,7 +320,7 @@ arxiv_recommender/
    - `init_app_db(path)` — creates all tables (see schema above)
    - `get_connection(path)` — returns WAL-enabled connection
    - `enqueue_task(con, type, payload)` — insert into task_queue
-   - `claim_next_task(con, type)` — atomic SELECT + UPDATE to set status='running'
+   - `claim_next_task(con, type)` — atomic UPDATE … RETURNING * to claim oldest pending task
    - `complete_task(con, id)` / `fail_task(con, id, error)` — update task status
 2. Create `scripts/migrate_legacy.py`:
    - Read all `arxiv_id`s from `embeddings_cache.db`.
@@ -325,21 +330,31 @@ arxiv_recommender/
 
 ---
 
-### Phase 3 — Ingest daemon
-**Goal:** Working daemon that processes 'embed' tasks end-to-end.
+### Phase 3 — Ingest daemons  ✅ COMPLETE
 
-`daemons/ingest_daemon.py` main loop:
-1. `claim_next_task(con, 'embed')` — returns task or None.
-2. If None: sleep (poll interval, e.g. 10 seconds) and retry.
-3. Extract `arxiv_id` from payload.
-4. Check if `arxiv_id` already in `papers` table; if yes, mark done and continue.
-5. Run `ingest.summarize_arxiv_paper()` then `ingest.gen_arxiv_embedding()`.
-6. Insert row into `papers` table.
-7. Enqueue 'recommend' tasks for all users whose `user_categories` overlaps with this paper's categories.
-8. Mark task done.
-9. On any exception: mark task failed (increment attempts); if attempts < 3, reset to pending.
+Two independent daemons handle the ingest pipeline:
 
-Startup: check for any `arxiv_id`s in `embeddings_cache.db` not yet in `papers` — backfill `papers` table (not re-embed; just copy metadata).
+**`daemons/meta_daemon.py`** — processes `'fetch_meta'` tasks:
+- Claims up to `INGEST_META_BATCH_SIZE` (256) tasks at once from the queue.
+- Filters out papers already in the `papers` table.
+- Calls `get_arxiv_metadata()` for the remainder in a single S2 batch call (arXiv Atom API fallback).
+- For each successfully fetched paper: enqueues an `'embed'` task and marks the meta task done.
+- For papers whose metadata could not be retrieved: `fail_task()` with auto-retry (max 3 attempts).
+
+**`daemons/embed_daemon.py`** — processes `'embed'` tasks (one at a time):
+- Skips if the paper is already fully ingested (papers table + embeddings DB).
+- Calls `fetch_arxiv_embedding()`: LLM summarise → embed → save to `embeddings_cache.db`.
+- `fail_task()` with auto-retry (max 3 attempts) on any exception.
+- `--once` flag for one-shot use (useful for testing).
+
+Both daemons run in parallel and are fully independent. `cron_daily.py` enqueues only `'fetch_meta'` tasks.
+
+Other changes:
+- `fetch_arxiv_metadata` (Atom API) extended to return `published_date` and `categories`.
+- `fetch_arxiv_metadata_s2` extended to return `published_date` (S2 `publicationDate` field).
+- `claim_next_task` rewritten with `RETURNING *` (atomic, no second SELECT).
+- `claim_next_tasks_batch(con, type, limit)` added to `appdb.py` — same pattern, returns a list.
+- `META_INGEST_POLL_INTERVAL = 5`, `EMBED_INGEST_POLL_INTERVAL = 0.1`, and `INGEST_META_BATCH_SIZE = 256` added to `config.py`.
 
 ---
 
@@ -354,7 +369,7 @@ The following are dead code and should be deleted:
 
 Also add: `compute_model_hash(liked_ids: list[str]) -> str` helper needed by the recommend daemon and API.
 
-Update `experiments/arxiv_embedding.py` shim to remove the deleted names.
+Updated `experiments/arxiv_embedding.py` shim to remove the deleted names (file now deleted).
 
 ---
 
@@ -462,10 +477,12 @@ Stale recommendations: show spinner/banner while `status == "generating"`. Poll 
 ### Phase 8 — Ops / deployment
 **Goal:** Reliable unattended operation.
 
-1. **Daily cron** (`scripts/cron_daily.py`):
-   - For each unique category in `user_categories`, call `fetch_latest_mailing_ids()`.
-   - For each ID not already in `papers` table, insert an 'embed' task into `task_queue`.
-   - Run via `cron` (e.g. `0 14 * * 1-5`) or `systemd.timer`.
+1. **Daily cron** (`scripts/cron_daily.py`):  ✅ DONE
+   - Reads `DAILY_INGEST_CATEGORIES` from `config.py` (default: `["astro-ph"]`); overridable on the command line.
+   - Calls `fetch_latest_mailing_ids(category)` for each category.
+   - For each ID not already in the `papers` table, enqueues a `'fetch_meta'` task (not `'embed'` directly).
+   - Logs per-category and total enqueued/skipped counts.
+   - Run via `cron` (e.g. `30 14 * * 1-5`) or `systemd.timer`.
 
 2. **systemd service files** for ingest daemon and recommend daemon (auto-restart on failure).
 
@@ -514,7 +531,7 @@ Stale recommendations: show spinner/banner while `status == "generating"`. Poll 
 - [x] Phase 4: recommendation engine — **DONE** (`ScoringModel` class, `recommend.py` demo)
 - [x] Step 0: dead code cleanup in `scoring.py` — **DONE** (removed `train_test_split` import, fixed docstring, removed debug prints, added `compute_model_hash()`; fixed `experiments/arxiv_embedding.py` import block)
 - [x] Phase 2: app database (`appdb.py` + `scripts/migrate_legacy.py`) — **DONE** (`app.db` created with all 7 tables; 589 papers migrated from `embeddings_cache.db` + metadata cache; `APP_DB_PATH` added to `config.py`)
-- [ ] Phase 3: ingest daemon — not started
+- [x] Phase 3: ingest daemons — **DONE** (`daemons/meta_daemon.py` + `daemons/embed_daemon.py`; `fetch_arxiv_metadata` extended with `categories`/`published_date`; `fetch_arxiv_metadata_s2` extended with `published_date`; `claim_next_task` fixed with `RETURNING *`; `claim_next_tasks_batch` added; `META_INGEST_POLL_INTERVAL`, `EMBED_INGEST_POLL_INTERVAL`, `INGEST_META_BATCH_SIZE` added to config; `scripts/cron_daily.py` created)
 - [ ] Phase 5: recommend daemon — not started
 - [ ] Phase 6: FastAPI backend — not started
 - [ ] Phase 7: React frontend — not started
