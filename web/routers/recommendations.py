@@ -8,8 +8,8 @@ import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from arxiv_lib.config import RECOMMEND_TIME_WINDOWS
-from arxiv_lib.recommend import NotEnoughDataError, get_recommendations
+from arxiv_lib.config import ONBOARDING_BROWSE_LIMIT, RECOMMEND_TIME_WINDOWS
+from arxiv_lib.recommend import NotEnoughDataError, get_onboarding_papers, get_recommendations
 from web.dependencies import get_current_user, get_db
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
@@ -27,18 +27,21 @@ def recommendations(
             detail=f"Invalid window {window!r}. Must be one of: {RECOMMEND_TIME_WINDOWS}",
         )
 
+    onboarding = False
+    message = None
     try:
         results = get_recommendations(db, user["id"], window)
-    except NotEnoughDataError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
-        )
+    except NotEnoughDataError:
+        results = get_onboarding_papers(db, window, ONBOARDING_BROWSE_LIMIT, seed=user["id"])
+        onboarding = True
+        message = "Not enough data to generate recommendations yet. Mark papers as relevant or add papers to your Library."
 
-    generated_at = results[0]["generated_at"] if results else None
+    generated_at = next((r["generated_at"] for r in results if r["generated_at"]), None)
     return {
         "window":       window,
         "count":        len(results),
         "generated_at": generated_at,
+        "onboarding":   onboarding,
+        "message":      message,
         "results":      results,
     }

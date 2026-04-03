@@ -81,7 +81,7 @@ export default function PaperDetail({ arxivId, initialLiked, score, onLikedChang
     <div className="p-6 overflow-y-auto h-full">
       <div className="flex items-start justify-between gap-4 mb-2">
         <h2 className="text-[23px] font-semibold text-gray-900 leading-snug">{paper.title}</h2>
-        {score != null && (() => {
+        {score != null ? (() => {
           const { hue } = scoreBar(score);
           return (
             <span
@@ -96,7 +96,19 @@ export default function PaperDetail({ arxivId, initialLiked, score, onLikedChang
               {score.toFixed(3)}
             </span>
           );
-        })()}
+        })() : (
+          <span
+            className="text-xs font-mono whitespace-nowrap mt-1 shrink-0 px-2 py-0.5 rounded-md cursor-default"
+            title="No relevance score (not enough liked papers yet)"
+            style={{
+              color: "#9ca3af",
+              backgroundColor: "#f3f4f6",
+              border: "1px solid #d1d5db",
+            }}
+          >
+            &#x2015;
+          </span>
+        )}
       </div>
       <div className="text-base text-gray-500 mb-1">{authorStr}</div>
       <div className="text-base text-gray-400 mb-4">{paper.published_date}</div>

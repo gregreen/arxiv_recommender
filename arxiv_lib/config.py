@@ -67,6 +67,11 @@ BACKGROUND_NEGATIVE_MIN_COUNT = 64
 # Minimum number of liked papers required before attempting to train a model.
 RECOMMEND_MIN_LIKED = 4
 
+# Maximum number of papers returned by the onboarding browse (shown to new users
+# who have not yet liked enough papers to generate scored recommendations).
+# Returned in random order so the user sees a varied sample each visit.
+ONBOARDING_BROWSE_LIMIT = 150
+
 # Time windows exposed by the recommendations endpoint.
 RECOMMEND_TIME_WINDOWS = ("day", "week", "month")
 

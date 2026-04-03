@@ -18,16 +18,18 @@ export interface Recommendation {
   title: string;
   authors: string[];
   published_date: string | null;
-  score: number;
-  rank: number;
+  score: number | null;
+  rank: number | null;
   liked: number | null;
-  generated_at: string;
+  generated_at: string | null;
 }
 
 export interface RecommendationsResponse {
   window: string;
   count: number;
   generated_at: string | null;
+  onboarding: boolean;
+  message: string | null;
   results: Recommendation[];
 }
 

@@ -25,6 +25,7 @@ responsible for committing transactions when needed.
 """
 
 import json
+import random
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
@@ -386,4 +387,51 @@ def get_recommendations(
             "generated_at":   row[7],
         }
         for row in result_rows
+    ]
+
+
+def get_onboarding_papers(
+    con: sqlite3.Connection,
+    time_window: str,
+    limit: int,
+    seed: int = 0,
+) -> list[dict]:
+    """
+    Return up to *limit* papers published within *time_window*, in a stable order.
+
+    The order is determined by *seed* (typically the user_id), so the same user
+    always sees the same ordering for a given set of papers.  Papers are fetched
+    in arxiv_id order then shuffled in Python with the seed, which is cheaper
+    than relying on SQLite's non-seedable RANDOM() and avoids reordering on
+    every request.
+
+    Used when the user has too few liked papers to generate scored recommendations.
+    Returned dicts have the same keys as get_recommendations() but with
+    score=None, rank=None, and generated_at=None.
+    """
+    cutoff = _window_cutoff(time_window)
+    rows = con.execute(
+        """
+        SELECT arxiv_id, title, authors, published_date
+          FROM papers
+         WHERE published_date >= ? AND published_date IS NOT NULL
+         ORDER BY arxiv_id
+        """,
+        (cutoff,),
+    ).fetchall()
+    rng = random.Random(seed)
+    rng.shuffle(rows)
+    rows = rows[:limit]
+    return [
+        {
+            "arxiv_id":       row[0],
+            "title":          row[1] or "",
+            "authors":        json.loads(row[2]) if row[2] else [],
+            "published_date": row[3],
+            "score":          None,
+            "rank":           None,
+            "liked":          None,
+            "generated_at":   None,
+        }
+        for row in rows
     ]

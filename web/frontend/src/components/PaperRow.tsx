@@ -8,7 +8,8 @@ interface PaperRowProps {
 }
 
 export default function PaperRow({ rec, selected, onClick }: PaperRowProps) {
-  const { pct, color } = scoreBar(rec.score);
+  const scored = rec.score != null;
+  const { pct, color } = scored ? scoreBar(rec.score!) : { pct: 0, color: "#d1d5db" };
 
   let likedClass = "";
   if (rec.liked === 1) likedClass = "bg-green-50 border-green-200";

@@ -19,7 +19,7 @@ export default function MainLayout() {
     clearUser();
   }
 
-  function handleSelect(arxivId: string, liked: number | null, score: number) {
+  function handleSelect(arxivId: string, liked: number | null, score: number | null) {
     setSelectedArxivId(arxivId);
     setSelectedScore(score);
     // Prefer the cached (user-updated) value over the stale list value.
@@ -60,6 +60,7 @@ export default function MainLayout() {
           <RecommendationList
             selectedArxivId={selectedArxivId}
             onSelect={handleSelect}
+            likedCache={likedCache}
           />
         </div>
 
