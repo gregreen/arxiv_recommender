@@ -65,11 +65,11 @@ from arxiv_lib.scoring import (
     rbf_scoring,
     calculate_projection_matrices,
     project_to_subspace,
-    train_logistic_model,
-    build_rbf_features,
-    fit_scoring_model,
-    apply_scoring_model,
-    score_papers_for_user,
+    calculate_rbf_features,
+    ScoringModel,
+    compute_model_hash,
+    serialize_logistic_regression_model,
+    deserialize_logistic_regression_model,
 )
 
 

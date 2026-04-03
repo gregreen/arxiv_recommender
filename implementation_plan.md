@@ -1,22 +1,26 @@
 # arxiv Recommender — Web Service Implementation Plan
 
 **Last updated:** 2026-04-02  
-**Status:** Phase 1 not yet started. `arxiv_embedding.py` is the current monolithic entry point.
+**Status:** Phases 1 and 4 complete. `arxiv_lib/` library exists; `ScoringModel` class is working; `recommend.py` produces verified recommendations.
 
 ---
 
 ## Background
 
-`arxiv_embedding.py` is a working research script (~1500 lines) that:
+`experiments/arxiv_embedding.py` was a monolithic research script (~1500 lines). It has been refactored into `arxiv_lib/` (Phase 1 complete). The script itself is now a thin shim that re-exports from the library and retains the `*_example()` exploration functions.
+
+The library currently:
 - Fetches arXiv paper metadata (title, authors, abstract) via Semantic Scholar and the arXiv Atom API
 - Downloads and processes LaTeX source
 - Generates LLM-based structured paper summaries via HuggingFace InferenceClient (Qwen3-Next-80B-A3B-Thinking via Novita)
 - Embeds papers using Qwen3-Embedding-8B (4096-dim Matryoshka vectors, truncated to 64 dims for scoring)
-- Scores/ranks papers for a single hardcoded user using RBF+SVD features + logistic regression
-- Stores embeddings in `embeddings_cache.db` (SQLite, WAL mode, migrated from `.npz`)
+- Scores/ranks papers for a single user via the `ScoringModel` class (RBF+SVD features + logistic regression)
+- Stores embeddings in `embeddings_cache.db` (SQLite, WAL mode, migrated from `.npz`; 589 vectors)
 - Stores metadata in `arxiv_metadata_cache/{month}.json` (monthly JSON bundles)
 - Stores LLM summaries in `arxiv_summary_cache/{arxiv_id}.txt` (one file per paper)
 - Stores raw LaTeX in `arxiv_source_cache/{arxiv_id}.tex` (one file per paper; expendable)
+
+`recommend.py` at the project root is a working command-line script that uses `ScoringModel` to produce recommendations from the existing embedding database. It serves as the reference example of the scoring workflow.
 
 The goal is to turn this into a multi-user web service.
 
@@ -121,24 +125,24 @@ CREATE TABLE papers (
 CREATE INDEX papers_embedded_at ON papers(embedded_at);
 
 -- Per-user fitted recommendation model
--- model_hash: sha256(sorted liked_arxiv_ids + str(EMBEDDING_DIM) + SCORING_VERSION)[:16]
+-- model_hash: sha256(json.dumps(sorted(liked_ids)) + str(EMBEDDING_DIM) + SCORING_VERSION)[:16]
 --   Used to detect when the model is stale relative to the user's current liked set.
 -- n_liked / n_disliked: stored for informational purposes; NOT used for staleness checks
 --   (use model_hash for that).
--- model_blob: pickle of dict:
+-- model_blob: JSON string produced by ScoringModel.serialize():
 --   {
---     "scaler": StandardScaler,
---     "pca_projection": np.ndarray (D, n_components),      -- from positive vectors SVD
---     "pca_residual":   np.ndarray (D, D-n_components),
---     "score_scaler":   StandardScaler,                    -- fitted on RBF features
---     "logistic":       LogisticRegression,
---     "gammas":         np.ndarray,
---     "embedding_dim":  int,
---     "scoring_version": str,
+--     "logistic_model":             {coef, intercept, classes, C, class_weight, random_state},
+--     "residual_projection_matrix": [[...]], -- np.ndarray as nested list
+--     "mu_features":                [...],
+--     "sigma_features":             [...],
+--     "mu_vectors":                 [...],
+--     "sigma_vectors":              [...],
+--     "positive_vectors":           [[...]],
 --   }
+-- Deserialize with ScoringModel.deserialize(json.loads(model_blob)).
 CREATE TABLE user_models (
     user_id         INTEGER PRIMARY KEY REFERENCES users(id),
-    model_blob      BLOB NOT NULL,
+    model_blob      TEXT NOT NULL,  -- JSON, NOT a pickle blob
     model_hash      TEXT NOT NULL,
     n_liked         INTEGER NOT NULL,
     n_disliked      INTEGER NOT NULL,
@@ -199,43 +203,46 @@ Future culling: delete rows from `recommendations` WHERE `rank > N` AND `time_wi
 
 ## Scoring Algorithm (RBF+SVD logistic regression)
 
-The core algorithm is already implemented in `rbf_svd_example()` in `arxiv_embedding.py`. It will be extracted into `arxiv_lib/scoring.py` with the following interface:
+Implemented in `arxiv_lib/scoring.py` as the `ScoringModel` class. The reference usage is in `recommend.py`.
 
+**Training interface:**
 ```python
-def score_papers_for_user(
-    liked_ids: list[str],           # user's explicitly liked papers (positive set)
-    disliked_ids: list[str],        # user's explicitly disliked papers (always negative)
-    candidate_ids: list[str],       # papers to rank (e.g. papers from last N days)
-    embedding_cache: dict[str, np.ndarray],
-    embedding_dim: int = EMBEDDING_DIM,    # config constant, default 64
-    n_pca_components: int = 4,
-    gammas: np.ndarray = None,      # defaults to np.logspace(-6, 6, num=6, base=2)
-) -> dict[str, float]:              # {arxiv_id: log-probability score}
+model = ScoringModel.from_training_data(
+    positive_vectors,   # np.ndarray (N_pos, EMBEDDING_DIM) — truncated embeddings of liked papers
+    negative_vectors,   # np.ndarray (N_neg, EMBEDDING_DIM) — disliked + all unlabelled papers
+)
 ```
 
-**Algorithm summary:**
-1. Load truncated embeddings (`[:embedding_dim]`) for liked + disliked + candidate papers.
-2. `StandardScaler` fit on liked+disliked+candidate, transform all.
-3. SVD on liked-paper vectors to get `P` (top `n_pca_components`) and `P_residual`.
-4. For both the full-dim and residual-dim projections, compute RBF kernel features at each gamma.
-   Features: `[max_similarity, logsumexp at gamma_0, ..., logsumexp at gamma_N]` per paper.
-5. Concatenate RBF features from both projections.
-6. `StandardScaler` on feature matrix.
-7. Logistic regression trained on liked (positive) vs. disliked+unrelated (negative) papers.
-   Disliked papers are always in the negative set regardless of sample balancing.
-8. Return `predict_log_proba(candidate_features)[:, 1]` as scores.
+**Scoring interface:**
+```python
+scores     = model.score_embeddings(vectors)         # np.ndarray (N,) of ln P(relevant)
+scores_pos = model.score_positive_embeddings()       # same but avoids self-similarity for liked papers
+```
 
-**Model caching:** The fitted (scaler, PCA projections, score scaler, logistic model) is pickled and stored in `user_models.model_blob`. The recommend daemon calls `get_or_train_user_model()` which:
-- Computes `model_hash` from current liked IDs + config.
-- Returns cached model if hash matches AND `trained_at` is within `RECOMMEND_MIN_RETRAIN_INTERVAL`.
-- Otherwise retrains and persists.
+**Algorithm summary** (executed inside `ScoringModel.fit()`):
+1. Truncate embeddings to `EMBEDDING_DIM` before passing in (caller's responsibility).
+2. `StandardScaler` fit on all training vectors (positive + negative); store as `mu_vectors` / `sigma_vectors`.
+3. SVD on scaled positive vectors → residual projection matrix `P_residual`; store for inference.
+4. For both the full-dim space and residual-subspace projection, compute RBF kernel features at each gamma.
+   Features per paper: `[max_similarity, logsumexp(gamma_0), ..., logsumexp(gamma_N)]`.
+5. Concatenate RBF features from both projections.
+6. `StandardScaler` on the feature matrix; store as `mu_features` / `sigma_features`.
+7. Logistic regression (`C=0.2`, `class_weight='balanced'`) trained on the scaled features.
+   Disliked papers are always in the negative set regardless of sample balancing.
+8. At inference: apply the same scaling pipeline, then return `predict_log_proba(features)[:, 1]`.
 
 **Key constants** (`arxiv_lib/config.py`):
 ```python
 EMBEDDING_DIM = 64            # Matryoshka truncation. Max useful: 128.
 SCORING_VERSION = "v1"        # Bump when algorithm changes to invalidate all cached models.
+RBF_GAMMAS = np.logspace(-6, 6, num=6, base=2)
+RBF_PCA_COMPONENTS = 4
 RECOMMEND_MIN_RETRAIN_INTERVAL = 3600   # seconds; don't retrain more often than this
 ```
+
+**Model serialization:** `ScoringModel.serialize()` returns a JSON-serialisable dict (all numpy arrays converted via `.tolist()`). Store as a JSON TEXT string in `user_models.model_blob`. Reconstruct with `ScoringModel.deserialize(json.loads(blob))`.
+
+**Model staleness:** `model_hash = sha256(json.dumps(sorted(liked_ids)) + str(EMBEDDING_DIM) + SCORING_VERSION)[:16]`. The recommend daemon re-trains if the hash doesn't match the stored hash, or if `trained_at` is more than `RECOMMEND_MIN_RETRAIN_INTERVAL` ago.
 
 ---
 
@@ -254,10 +261,10 @@ arxiv_recommender/
 
   arxiv_lib/
     __init__.py
-    config.py                 ← all constants (paths, EMBEDDING_DIM, SCORING_VERSION, etc.)
-    ingest.py                 ← all fetch/summarize/embed logic from arxiv_embedding.py
-    scoring.py                ← score_papers_for_user(), train_logistic_model(), rbf helpers
-    appdb.py                  ← app.db schema creation, connection helpers, task queue helpers
+    config.py                 ← all constants (paths, EMBEDDING_DIM, SCORING_VERSION, etc.)  [DONE]
+    ingest.py                 ← all fetch/summarize/embed logic  [DONE]
+    scoring.py                ← ScoringModel, calculate_rbf_features(), rbf helpers  [DONE]
+    appdb.py                  ← app.db schema creation, connection helpers, task queue helpers  [TODO]
 
   daemons/
     __init__.py
@@ -283,35 +290,21 @@ arxiv_recommender/
           OnboardingFlow.tsx   ← category selection + paper seeding
         api/                  ← typed fetch wrappers
 
+  recommend.py                ← working CLI recommendation script (reference usage of ScoringModel)  [DONE]
+
   scripts/
-    migrate_legacy.py         ← one-time: populate papers table from existing caches
-    cron_daily.py             ← called by cron/systemd; enqueues embed tasks for today's mailing
+    migrate_legacy.py         ← one-time: populate papers table from existing caches  [TODO]
+    cron_daily.py             ← called by cron/systemd; enqueues embed tasks for today's mailing  [TODO]
 ```
 
 ---
 
 ## Phase-by-Phase Roadmap
 
-### Phase 1 — Project structure + library refactor
-**Goal:** Extract `arxiv_embedding.py` into `arxiv_lib/` without changing behaviour.
+### Phase 1 — Project structure + library refactor  ✅ COMPLETE
 
-1. Create `arxiv_lib/config.py` with all constants. Replace hardcoded `[:64]`, path strings, and category lists with config references throughout.
-2. Create `arxiv_lib/ingest.py` by copying all fetch/summarize/embed functions from `arxiv_embedding.py`:
-   - `load_from_arxiv_metadata_cache`, `write_to_arxiv_metadata_cache`, `get_arxiv_metadata`
-   - `fetch_arxiv_metadata`, `fetch_arxiv_metadata_s2`, `fetch_arxiv_metadata_html`
-   - `get_arxiv_source`, `compress_latex_whitespace`
-   - `summarize_arxiv_paper`
-   - `gen_arxiv_embedding`, `fetch_arxiv_embedding`, `embed_arxiv_ids`, `embed_latest_mailing`
-   - `_init_embedding_db`, `load_embedding_cache`, `save_embedding_cache`
-   - `load_tokens`
-   - Remove the hardcoded category validation in `raise_on_arxiv_category`; replace with config-driven list.
-3. Create `arxiv_lib/scoring.py` with:
-   - `rbf_scoring`, `train_logistic_model`, `calculate_projection_matrices`, `project_to_subspace`
-   - New: `score_papers_for_user()` — the clean version of `rbf_svd_example()` (see algorithm above)
-   - New: `get_or_train_user_model()` — handles model caching
-4. Update `arxiv_embedding.py` to import from `arxiv_lib` (thin shim for backward compat).
-
-**Verification:** `python arxiv_embedding.py` still runs and produces same output as before.
+- `arxiv_lib/config.py`, `ingest.py`, `scoring.py`, `__init__.py` created.
+- `experiments/arxiv_embedding.py` is now a thin shim that re-exports from `arxiv_lib` and retains the `*_example()` exploration functions.
 
 ---
 
@@ -350,16 +343,30 @@ Startup: check for any `arxiv_id`s in `embeddings_cache.db` not yet in `papers` 
 
 ---
 
-### Phase 4 — Recommendation engine
-**Goal:** Clean, tested `score_papers_for_user()` function.
+### Step 0 — Clean up `scoring.py`  (prerequisite for Phase 2+)
+**Goal:** Remove stale standalone functions that were superseded by `ScoringModel`.
 
-Extract from `rbf_svd_example()` into `arxiv_lib/scoring.py`:
-- Takes: `liked_ids`, `disliked_ids`, `candidate_ids`, `embedding_cache`, and config kwargs.
-- Disliked papers are always included in the negative set (not sampled away).
-- Returns `{arxiv_id: log_prob_score}` for all candidates.
-- Also: `get_or_train_user_model(user_id, liked_ids, disliked_ids, con)` — loads from DB if hash matches and not stale; otherwise trains and persists.
+The following are dead code and should be deleted:
+- `fit_scoring_model()` — body references undefined variables; superseded by `ScoringModel.from_training_data()`
+- `apply_scoring_model()` — superseded by `ScoringModel.score_embeddings()`
+- Standalone `build_rbf_features()` — logic now lives inside `ScoringModel.fit()`; the low-level `calculate_rbf_features()` helper remains
+- Unused `train_test_split` import
 
-**Verification:** Running `score_papers_for_user(my_papers, [], all_other_ids, cache)` should reproduce the same top-10 results as `rbf_svd_example()`.
+Also add: `compute_model_hash(liked_ids: list[str]) -> str` helper needed by the recommend daemon and API.
+
+Update `experiments/arxiv_embedding.py` shim to remove the deleted names.
+
+---
+
+### Phase 4 — Recommendation engine  ✅ COMPLETE
+
+`ScoringModel` in `arxiv_lib/scoring.py` implements the full pipeline:
+- `ScoringModel.from_training_data(positive_vectors, negative_vectors)` — trains from embedding arrays
+- `ScoringModel.score_embeddings(vectors)` — returns `ln P(relevant)` for arbitrary vectors
+- `ScoringModel.score_positive_embeddings()` — scores liked papers without self-similarity bias
+- `ScoringModel.serialize()` / `ScoringModel.deserialize(data)` — JSON-safe round-trip
+
+`recommend.py` demonstrates the full workflow: load cache → truncate → `from_training_data()` → `score_embeddings()` → ranked output. Verified against `experiments/my_papers.txt`.
 
 ---
 
@@ -369,15 +376,16 @@ Extract from `rbf_svd_example()` into `arxiv_lib/scoring.py`:
 `daemons/recommend_daemon.py` main loop:
 1. `claim_next_task(con, 'recommend')` — returns task or None.
 2. Extract `user_id` from payload.
-3. Load user's liked and disliked papers from `user_papers` table.
-4. Compute `model_hash`.
+3. Load user's liked (`liked=1`) and disliked (`liked=-1`) paper IDs from `user_papers` table.
+4. Compute `compute_model_hash(liked_ids)`.
 5. Check staleness: if existing recommendations are fresh (hash matches AND no new papers since `generated_at`), skip.
-6. Load candidate paper IDs from `papers` table (all embedded papers; time-window filtering done at query time by the web server).
-7. Load all vectors from `embeddings_cache.db`.
-8. Call `score_papers_for_user()`.
-9. Write results to `recommendations` table (upsert), with rank computed per `time_window`.
-   - Write four sets: 'day', 'week', 'month', 'year' (filter `papers.embedded_at` accordingly).
-10. Mark task done.
+6. Load all vectors from `embeddings_cache.db`; truncate to `EMBEDDING_DIM`.
+7. Build `v_pos` (liked papers) and `v_neg` (disliked + all unlabelled).
+8. `model = ScoringModel.from_training_data(v_pos, v_neg)`.
+9. Score all papers: `model.score_embeddings(vectors)` for unlabelled, `model.score_positive_embeddings()` for liked.
+10. Upsert into `recommendations` with computed `rank`, for each of four time windows (`day` / `week` / `month` / `year`) filtered by `papers.embedded_at`.
+11. Persist model: `json.dumps(model.serialize())` → `INSERT OR REPLACE INTO user_models ...`.
+12. Mark task done.
 
 ---
 
@@ -502,10 +510,11 @@ Stale recommendations: show spinner/banner while `status == "generating"`. Poll 
 - [x] `embeddings_cache.db`: SQLite embedding store, 589 papers, WAL mode, working
 - [x] `arxiv_summary_cache/`: ~300+ LLM summary files, working
 - [x] `arxiv_metadata_cache/`: monthly JSON bundles, working
-- [ ] Phase 1: library refactor — not started
-- [ ] Phase 2: app database — not started
+- [x] Phase 1: library refactor — **DONE** (`arxiv_lib/` package with `config.py`, `ingest.py`, `scoring.py`)
+- [x] Phase 4: recommendation engine — **DONE** (`ScoringModel` class, `recommend.py` demo)
+- [x] Step 0: dead code cleanup in `scoring.py` — **DONE** (removed `train_test_split` import, fixed docstring, removed debug prints, added `compute_model_hash()`; fixed `experiments/arxiv_embedding.py` import block)
+- [x] Phase 2: app database (`appdb.py` + `scripts/migrate_legacy.py`) — **DONE** (`app.db` created with all 7 tables; 589 papers migrated from `embeddings_cache.db` + metadata cache; `APP_DB_PATH` added to `config.py`)
 - [ ] Phase 3: ingest daemon — not started
-- [ ] Phase 4: recommendation engine — not started
 - [ ] Phase 5: recommend daemon — not started
 - [ ] Phase 6: FastAPI backend — not started
 - [ ] Phase 7: React frontend — not started

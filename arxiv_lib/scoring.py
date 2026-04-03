@@ -1,7 +1,7 @@
 """
 Scoring pipeline: feature engineering, model training, and per-user recommendation.
 
-The recommended workflow (implemented by score_papers_for_user) is:
+The recommended workflow (see `ScoringModel` and `recommend.py`) is:
 
   StandardScaler
     → SVD on positive vectors (RBF_PCA_COMPONENTS)
@@ -14,17 +14,20 @@ The recommended workflow (implemented by score_papers_for_user) is:
 Pure numpy / sklearn; no network calls.
 """
 
+import hashlib
+import json
+
 import numpy as np
 from scipy.spatial.distance import cdist
 from scipy.special import logsumexp
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 from arxiv_lib.config import (
     EMBEDDING_DIM,
     RBF_GAMMAS,
     RBF_PCA_COMPONENTS,
+    SCORING_VERSION,
 )
 
 
@@ -344,8 +347,6 @@ class ScoringModel(object):
         np.ndarray, shape (N_eval,)
             ln P(relevant) scores for each input vector. Higher = more recommended.
         """
-        print('v_pos: ', self.scale_vectors(self.positive_vectors)[:5])
-        print('v_eval: ', self.scale_vectors(vectors)[:5])
         features, _ = calculate_rbf_features(
             self.scale_vectors(self.positive_vectors),
             v_eval=self.scale_vectors(vectors),
@@ -445,4 +446,26 @@ def deserialize_logistic_regression_model(data: dict) -> LogisticRegression:
     model.class_weight = data["class_weight"]
     model.random_state = data["random_state"]
     return model
+
+
+def compute_model_hash(liked_ids: list[str]) -> str:
+    """
+    Compute a short hash that uniquely identifies the combination of liked papers
+    and current scoring configuration.
+
+    The hash changes whenever the liked set, embedding dimension, or scoring
+    version changes, allowing callers to detect stale cached models.
+
+    Parameters
+    ----------
+    liked_ids : list[str]
+        arXiv IDs of the user's liked papers.  Order does not matter.
+
+    Returns
+    -------
+    str
+        First 16 hex characters of the SHA-256 digest.
+    """
+    payload = json.dumps(sorted(liked_ids)) + str(EMBEDDING_DIM) + SCORING_VERSION
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
 

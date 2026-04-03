@@ -676,6 +676,30 @@ def gen_arxiv_embedding(
     scoring time (do not store truncated vectors).
 
     # TODO: make embedding prompt field-agnostic (currently says "astrophysics paper")
+
+    Parameters
+    ----------
+    arxiv_id : str
+        arXiv ID of the paper to embed (e.g. "2309.06676").
+    tokens : dict[str, str]
+        Dict of API tokens, must include 'huggingface' and optionally 'semantic_scholar'.
+    summary_provider : str
+        InferenceClient provider for the summary step (default from config: SUMMARY_PROVIDER).
+    summary_model : str
+        Chat-completion model for the summary step (default from config: SUMMARY_MODEL).
+    embedding_provider : str
+        InferenceClient provider for the embedding step (default from config: EMBEDDING_PROVIDER).
+    embedding_model : str
+        Model for the embedding step (default from config: EMBEDDING_MODEL).
+    max_tokens : int
+        Maximum number of tokens for the combined metadata + summary input to the embedding model.
+         (default from config: EMBEDDING_MAX_TOKENS). Context limit note: Qwen3-Next-80B-A3B-Thinking
+         fails above ~110K tokens; leaving headroom for metadata and output, we set the default to 96K tokens.
+    
+    Returns
+    -------
+    np.ndarray
+        The embedding vector for the given arXiv ID.
     """
     print("")
     print(f"Fetching metadata for {arxiv_id}...")
@@ -691,7 +715,7 @@ def gen_arxiv_embedding(
         model=summary_model,
     )
 
-    # TODO: make field-agnostic
+    # TODO (later): make field-agnostic (no mention of astrophysics)
     prompt = (
         "Instruct: "
         "Given an astrophysics paper title, author list, abstract, "
@@ -734,6 +758,18 @@ def fetch_arxiv_embedding(arxiv_id: str, tokens: dict[str, str]) -> np.ndarray:
     """
     Returns the embedding vector for a given arXiv ID, using the local cache
     when available and generating a new one otherwise.
+
+    Parameters
+    ----------
+    arxiv_id : str
+        arXiv ID of the paper to embed (e.g. "2309.06676").
+    tokens : dict[str, str]
+        Dict of API tokens, must include 'huggingface' and optionally 'semantic_scholar'.
+    
+    Returns
+    -------
+    np.ndarray
+        The embedding vector for the given arXiv ID.
     """
     _init_embedding_db()
     with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
@@ -761,6 +797,21 @@ def embed_arxiv_ids(
 
     Returns a dict mapping arXiv ID -> embedding vector for every paper that
     was successfully embedded (including cache hits).
+
+    Parameters
+    ----------
+    arxiv_ids : list[str]
+        List of arXiv IDs to embed.
+    tokens : dict[str, str]
+        Dict of API tokens, must include 'huggingface' and optionally 'semantic_scholar'.
+    **kwargs : passed to gen_arxiv_embedding for each ID (e.g. summary/embedding
+         provider/model, max_tokens). See gen_arxiv_embedding for details.
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        Maps each arXiv ID to its embedding vector. IDs that could not be embedded
+        due to errors are omitted.
     """
     get_arxiv_metadata(arxiv_ids, s2_token=tokens.get('semantic_scholar'))
 
@@ -777,6 +828,18 @@ def embed_latest_mailing(category: str, tokens: dict[str, str]) -> dict[str, np.
     Fetch and embed all papers from the most recent arXiv mailing for a category.
 
     Returns a dict mapping arXiv ID -> embedding vector.
+
+    Parameters
+    ----------
+    category : str
+        arXiv category (e.g. "astro-ph.GA"). Must be in the configured ARXIV_CATEGORIES set.
+    tokens : dict[str, str]
+        Dict of API tokens, must include 'huggingface' and optionally 'semantic_scholar'.
+    
+    Returns
+    -------
+    dict[str, np.ndarray]
+         Maps each arXiv ID from the latest mailing to its embedding vector.
     """
     raise_on_arxiv_category(category)
     ids = fetch_latest_mailing_ids(category)
