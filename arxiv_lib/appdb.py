@@ -128,7 +128,7 @@ def get_connection(path: str = APP_DB_PATH) -> sqlite3.Connection:
         with get_connection() as con:
             con.execute(...)
     """
-    con = sqlite3.connect(path)
+    con = sqlite3.connect(path, check_same_thread=False)
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA foreign_keys=ON")
     con.row_factory = sqlite3.Row

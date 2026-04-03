@@ -63,7 +63,7 @@ def list_papers(
                up.liked, up.added_at
           FROM user_papers up
           LEFT JOIN papers p ON p.arxiv_id = up.arxiv_id
-         WHERE up.user_id = ?
+         WHERE up.user_id = ? AND up.liked != 0
          ORDER BY up.added_at DESC
         """,
         (user["id"],),

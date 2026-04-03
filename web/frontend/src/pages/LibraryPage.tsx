@@ -25,7 +25,13 @@ export default function LibraryPage() {
   function handleLikedChange(arxivId: string, liked: 1 | -1 | 0) {
     setSelectedLiked(liked);
     setLikedCache((prev) => ({ ...prev, [arxivId]: liked }));
-    setPapers((prev) => prev.map((p) => p.arxiv_id === arxivId ? { ...p, liked } : p));
+    if (liked === 0) {
+      // Neutral/removed — drop from the library list entirely.
+      setPapers((prev) => prev.filter((p) => p.arxiv_id !== arxivId));
+      setSelectedArxivId(null);
+    } else {
+      setPapers((prev) => prev.map((p) => p.arxiv_id === arxivId ? { ...p, liked } : p));
+    }
   }
 
   // Add paper form

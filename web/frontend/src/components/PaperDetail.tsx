@@ -41,10 +41,10 @@ export default function PaperDetail({ arxivId, initialLiked, score, onLikedChang
     if (!arxivId) return;
     setSaving(true);
     try {
-      await updatePaper(arxivId, newLiked);
-      const val = newLiked === liked ? 0 : newLiked;
+      const val = (newLiked === liked ? 0 : newLiked) as 1 | -1 | 0;
+      await updatePaper(arxivId, val);
       setLiked(val);
-      onLikedChange?.(arxivId, val as 1 | -1 | 0);
+      onLikedChange?.(arxivId, val);
     } catch {
       // silently ignore rating errors
     } finally {
