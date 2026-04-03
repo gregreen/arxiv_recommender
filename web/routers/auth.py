@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, EmailStr
 
 from web.auth import create_access_token, hash_password, verify_password
-from web.dependencies import get_db
+from web.dependencies import get_current_user, get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -83,3 +83,8 @@ def login(body: LoginRequest, response: Response, db: sqlite3.Connection = Depen
 def logout(response: Response):
     response.delete_cookie("access_token")
     return {"message": "Logged out."}
+
+
+@router.get("/me")
+def me(user=Depends(get_current_user)):
+    return {"user_id": user["id"], "email": user["email"]}

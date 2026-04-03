@@ -170,12 +170,16 @@ def update_paper(
     db: sqlite3.Connection = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    cur = db.execute(
-        "UPDATE user_papers SET liked = ? WHERE user_id = ? AND arxiv_id = ?",
-        (body.liked, user["id"], arxiv_id),
+    arxiv_id = _validate_arxiv_id(arxiv_id)
+    db.execute(
+        """
+        INSERT INTO user_papers (user_id, arxiv_id, liked)
+        VALUES (?, ?, ?)
+        ON CONFLICT (user_id, arxiv_id) DO UPDATE SET liked = excluded.liked
+        """,
+        (user["id"], arxiv_id, body.liked),
     )
-    if cur.rowcount == 0:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not in your library.")
+    _ensure_fetch_meta_enqueued(db, arxiv_id)
     db.commit()
     return {"arxiv_id": arxiv_id, "liked": body.liked}
 
