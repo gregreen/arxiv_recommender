@@ -5,6 +5,7 @@ import { useAuth } from "../AuthContext";
 import { getMyPapers, addPaper, updatePaper, deletePaper, importAds } from "../api/user";
 import type { UserPaper } from "../api/types";
 import { formatTimestamp } from "../utils";
+import MathText from "../components/MathText";
 import PaperDetail from "../components/PaperDetail";
 
 export default function LibraryPage() {
@@ -232,8 +233,8 @@ export default function LibraryPage() {
                 }`}
               >
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-800 truncate">
-                    {p.title ?? p.arxiv_id}
+                  <div className="text-sm font-medium text-gray-800 line-clamp-2">
+                    <MathText text={p.title ?? p.arxiv_id} />
                   </div>
                   <div className="text-xs text-gray-400 mt-0.5">
                     {p.arxiv_id} · {formatTimestamp(p.published_date)}

@@ -1,7 +1,7 @@
 # arxiv Recommender — Web Service Implementation Plan
 
-**Last updated:** 2026-04-03  
-**Status:** Phases 1–7 complete. Full stack working: `arxiv_lib/` library, ingest daemons, FastAPI backend (`web/`), React frontend (`web/frontend/`). Phase 8 (ops) not yet started.
+**Last updated:** 2026-04-04  
+**Status:** Phases 1–7 complete, plus post-launch fixes. Full stack working: `arxiv_lib/` library, ingest daemons, FastAPI backend (`web/`), React frontend (`web/frontend/`). Phase 8 (ops) not yet started.
 
 ---
 
@@ -404,6 +404,7 @@ Updated `experiments/arxiv_embedding.py` shim to remove the deleted names (file 
 - **`get_or_train_model(con, user_id) → (ScoringModel, model_hash)`** — loads cached model if hash matches; otherwise assembles training data and trains
 - **`refresh_recommendations(con, user_id, model, model_hash)`** — scores all papers, ranks within each time window, upserts into `recommendations`
 - **`recommendations_are_stale(con, user_id, model_hash)`** — returns True if no cache, hash mismatch, or new papers since last generation
+- **`get_onboarding_papers(con, time_window, limit, seed)`** — returns papers from the time window in a deterministic shuffled order for new users without a trained model
 - **`NotEnoughDataError`** — raised when user has fewer than `RECOMMEND_MIN_LIKED` liked papers with embeddings
 
 **Background negatives:** the oldest `BACKGROUND_NEGATIVE_COUNT` (500) embedded papers by `published_date`. Deterministic and stable — newly arriving papers are always newer, so the background set doesn't change as the corpus grows. Liked papers are excluded from the negative set. Explicitly disliked papers are added on top.
@@ -412,7 +413,16 @@ Updated `experiments/arxiv_embedding.py` shim to remove the deleted names (file 
 
 **Time windows:** `'day'`, `'week'`, `'month'` (defined in `RECOMMEND_TIME_WINDOWS`). Filtered by `papers.published_date`.
 
-**New config constants:** `BACKGROUND_NEGATIVE_COUNT = 500`, `BACKGROUND_NEGATIVE_MIN_COUNT = 10`, `RECOMMEND_MIN_LIKED = 3`, `RECOMMEND_TIME_WINDOWS = ('day', 'week', 'month')`.
+**Window anchoring:** Time-window cutoffs are aligned to arXiv mailing session boundaries rather than wall-clock midnight or UTC midnight.
+- arXiv submission sessions close at **14:00 US/Eastern civil time** (= 19:00 UTC in winter/EST, 18:00 UTC in summer/EDT). DST is handled correctly via `zoneinfo.ZoneInfo("America/New_York")`.
+- `_session_close_utc(date_utc)` — converts a UTC datetime to US/Eastern, sets time to 14:00 ET, converts back to UTC. Accounts for EST/EDT automatically.
+- `_latest_paper_anchor(con)` — queries `MAX(published_date)`, parses it (handles both `YYYY-MM-DD` and `YYYY-MM-DDTHH:MM:SSZ`), finds the next session-close boundary at or after that timestamp.
+- `_window_cutoff(time_window, anchor)` — subtracts the window delta plus 1 second from the anchor; returns `YYYY-MM-DDTHH:MM:SS`. The 1-second buffer ensures that papers submitted at exactly the open boundary are included.
+- Lexicographic string comparison works correctly: both `"2026-04-02"` (legacy S2 date) and `"2026-04-02T17:59:59Z"` (Atom API timestamp) compare correctly against a cutoff like `"2026-04-01T17:59:59"`.
+
+**`published_date` format:** `ingest.py` stores the full ISO 8601 timestamp from the arXiv Atom API (`YYYY-MM-DDTHH:MM:SSZ`). Legacy rows from S2 contain only `YYYY-MM-DD`. `scripts/refetch_timestamps.py` can be run to upgrade all rows to full timestamps.
+
+**New config constants:** `BACKGROUND_NEGATIVE_COUNT = 500`, `BACKGROUND_NEGATIVE_MIN_COUNT = 10`, `RECOMMEND_MIN_LIKED = 3`, `RECOMMEND_TIME_WINDOWS = ('day', 'week', 'month')`, `ONBOARDING_BROWSE_LIMIT = 50`.
 
 **Design decision:** Recommendations are computed inline on the API request (fast enough at current scale — pure numpy/sklearn, sub-second). A daily pre-generation pass via `cron_daily.py` or a daemon can be added later without changing this library.
 
@@ -482,6 +492,7 @@ web/frontend/src/
     MainLayout.tsx       ← /recommendations; two-column layout; likedCache state
     RegisterPage.tsx     ← register form
   App.tsx                ← react-router routes; AuthContext provider
+  utils.ts               ← formatTimestamp(raw): "2026-04-02T06:18:38Z" → "2026-04-02 @ 06:18:38 UTC"
 ```
 
 **Score bar colour:** `v = min(1, exp(0.5 * score))`; hue maps red (0°) → yellow (~60°) → green (120°). Shared via `scoreColor.ts`; used in both `PaperRow` (bar) and `PaperDetail` (score badge with tooltip).
@@ -509,11 +520,24 @@ web/frontend/src/
 └────────────────────────┴───────────────────────────────────────────┘
 ```
 
-**Liked state:** `likedCache` map in `MainLayout` (and `LibraryPage`) prevents liked state from resetting when a paper is re-selected. `PaperDetail` has a second `useEffect` watching `initialLiked` to sync when the parent changes it externally.
+**Liked state:** `likedCache` map in `MainLayout` (and `LibraryPage`) prevents liked state from resetting when a paper is re-selected. Populated on mount from `GET /api/users/me/papers` so liked colours persist across page reloads. `PaperDetail` has a second `useEffect` watching `initialLiked` to sync when the parent changes it externally.
 
-**Library page:** `/library` route; same two-column layout. Left column lists liked/disliked papers with toggle buttons (green for liked, red for disliked). Right column shows `PaperDetail`. Toggle button has `stopPropagation` to avoid triggering row selection.
+**Library page:** `/library` route; same two-column layout. Left column lists liked/disliked papers with toggle buttons (green for liked, red for disliked). Right column shows `PaperDetail`. Toggle button has `stopPropagation` to avoid triggering row selection. Papers rated neutral (`liked=0`) are never shown (filtered in both the SQL query and in React when a paper is unrated).
+
+**Onboarding:** New users with fewer than `RECOMMEND_MIN_LIKED` liked papers see a randomly shuffled list of recent papers (seeded by `user_id` for stability) instead of a "not enough data" error wall. The list is accompanied by a yellow banner explaining that the view will become personalized as they rate papers. The backend returns `{"onboarding": true, ...}` rather than a 409 error.
+
+**Score badge:** `null` score (onboarding mode) is displayed as a grey `—` badge with a tooltip. Non-null scores show the green/yellow/red bar as usual.
+
+**Timestamp display:** All dates rendered in the UI pass through `formatTimestamp()` in `utils.ts`. Full ISO 8601 timestamps (`YYYY-MM-DDTHH:MM:SSZ`) display as `"YYYY-MM-DD @ HH:MM:SS UTC"`; plain date strings show `@ 00:00:00 UTC`.
 
 **Auth flow:** `AuthContext` wraps the app; `GET /api/auth/me` probed on load to restore session. Unauthenticated users are redirected to `/login`.
+
+**Post-launch fixes applied:**
+- `appdb.py`: `sqlite3.connect(path, check_same_thread=False)` — required for FastAPI thread-pool.
+- `PaperDetail.handleRate`: toggle value computed before `updatePaper()` call (was sending pre-toggle value to backend).
+- `GET /api/users/me/papers`: SQL filter `liked != 0` — neutral papers never appear in the Library.
+- `scripts/activate_user.py --list`: shows table of pending (inactive) registrations.
+- `web/app.py`: `logging.basicConfig(level=logging.DEBUG)` in lifespan for server-side debug output.
 
 ---
 
@@ -525,7 +549,12 @@ web/frontend/src/
    - Calls `fetch_latest_mailing_ids(category)` for each category.
    - For each ID not already in the `papers` table, enqueues a `'fetch_meta'` task (not `'embed'` directly).
    - Logs per-category and total enqueued/skipped counts.
-   - Run via `cron` (e.g. `30 14 * * 1-5`) or `systemd.timer`.
+   - Run via `cron` (e.g. `30 18 * * 1-5` UTC, i.e. shortly after the 14:00 ET close) or `systemd.timer`.
+
+   **Timestamp re-fetch** (`scripts/refetch_timestamps.py`):  ✅ DONE (script created; run as needed)
+   - Re-fetches `published_date` for all papers from the arXiv Atom API to obtain full ISO 8601 timestamps.
+   - Batches of 50, with ≥10 s inter-batch sleep and exponential backoff (up to 120 s) on failure.
+   - Reports how many papers were updated and how many now have full timestamps.
 
 2. **systemd service files** for ingest daemon and recommend daemon (auto-restart on failure).
 
@@ -578,4 +607,13 @@ web/frontend/src/
 - [x] Phase 5: recommendation library — **DONE** (`arxiv_lib/recommend.py`; `get_recommendations`, `get_or_train_model`, `refresh_recommendations`, `recommendations_are_stale`; background negatives; `compute_model_hash` updated to include disliked IDs)
 - [x] Phase 6: FastAPI backend — **DONE** (`web/` package; JWT HttpOnly cookie auth; all CRUD endpoints; `GET /api/auth/me`; upsert PATCH; `scripts/activate_user.py`)
 - [x] Phase 7: React frontend — **DONE** (`web/frontend/` Vite+React+TS+Tailwind; `MainLayout`, `LibraryPage`, `PaperDetail`, `PaperRow`, `RecommendationList`, `MathText`, `scoreColor`; KaTeX; exp(0.5·score) colour bar; two-column layouts; likedCache sync)
+- [x] Post-launch fixes — **DONE**
+  - Onboarding flow: new users see recent papers (deterministic shuffle seeded by user_id) instead of error wall; yellow banner; `get_onboarding_papers()` in `recommend.py`; `recommendations.py` returns `{onboarding: true}` instead of 409
+  - Window anchoring: `_latest_paper_anchor` / `_session_close_utc` use `zoneinfo` to convert 14:00 US/Eastern → correct UTC, handling EST/EDT automatically
+  - `published_date` now stored as full ISO 8601 from Atom API (no more `[:10]` truncation in `ingest.py`)
+  - `scripts/refetch_timestamps.py` created to back-fill full timestamps
+  - Timestamp display: `utils.ts` `formatTimestamp()` applied in `PaperDetail`, `PaperRow`, `LibraryPage`
+  - SQLite threading fix: `check_same_thread=False`
+  - `handleRate` toggle fix; Library `liked=0` filter; score badge null handling; `likedCache` pre-populated on mount
+  - `scripts/activate_user.py --list` flag
 - [ ] Phase 8: ops/deployment — not started

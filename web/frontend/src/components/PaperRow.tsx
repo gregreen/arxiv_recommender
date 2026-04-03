@@ -1,6 +1,7 @@
 import type { Recommendation } from "../api/types";
 import { scoreBar } from "./scoreColor";
 import { formatTimestamp } from "../utils";
+import MathText from "./MathText";
 
 interface PaperRowProps {
   rec: Recommendation;
@@ -25,7 +26,7 @@ export default function PaperRow({ rec, selected, onClick }: PaperRowProps) {
       onClick={onClick}
       className={`cursor-pointer border rounded p-3 mb-1.5 hover:border-blue-300 transition-colors ${likedClass}`}
     >
-      <div className="text-sm font-medium text-gray-800 leading-snug">{title}</div>
+      <div className="text-sm font-medium text-gray-800 leading-snug line-clamp-2"><MathText text={rec.title} /></div>
       <div className="flex items-center gap-2 mt-1.5">
         <div className="flex-1 bg-gray-200 rounded-full h-1.5">
           <div

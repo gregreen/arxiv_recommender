@@ -81,7 +81,7 @@ export default function PaperDetail({ arxivId, initialLiked, score, onLikedChang
   return (
     <div className="p-6 overflow-y-auto h-full">
       <div className="flex items-start justify-between gap-4 mb-2">
-        <h2 className="text-[23px] font-semibold text-gray-900 leading-snug">{paper.title}</h2>
+        <h2 className="text-[23px] font-semibold text-gray-900 leading-snug"><MathText text={paper.title} /></h2>
         {score != null ? (() => {
           const { hue } = scoreBar(score);
           return (
