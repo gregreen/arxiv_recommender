@@ -1,5 +1,6 @@
 import type { Recommendation } from "../api/types";
 import { scoreBar } from "./scoreColor";
+import { formatTimestamp } from "../utils";
 
 interface PaperRowProps {
   rec: Recommendation;
@@ -33,7 +34,7 @@ export default function PaperRow({ rec, selected, onClick }: PaperRowProps) {
           />
         </div>
         <span className="text-xs text-gray-400 whitespace-nowrap">
-          {rec.published_date ?? ""}
+          {formatTimestamp(rec.published_date)}
         </span>
       </div>
     </div>

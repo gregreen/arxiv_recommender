@@ -4,6 +4,7 @@ import { logout } from "../api/auth";
 import { useAuth } from "../AuthContext";
 import { getMyPapers, addPaper, updatePaper, deletePaper, importAds } from "../api/user";
 import type { UserPaper } from "../api/types";
+import { formatTimestamp } from "../utils";
 import PaperDetail from "../components/PaperDetail";
 
 export default function LibraryPage() {
@@ -235,7 +236,7 @@ export default function LibraryPage() {
                     {p.title ?? p.arxiv_id}
                   </div>
                   <div className="text-xs text-gray-400 mt-0.5">
-                    {p.arxiv_id} · {p.published_date ?? ""}
+                    {p.arxiv_id} · {formatTimestamp(p.published_date)}
                   </div>
                 </div>
                 <div className="flex gap-1.5 shrink-0">

@@ -4,6 +4,7 @@ import { updatePaper } from "../api/user";
 import type { Paper } from "../api/types";
 import { scoreBar } from "./scoreColor";
 import MathText from "./MathText";
+import { formatTimestamp } from "../utils";
 
 interface PaperDetailProps {
   arxivId: string | null;
@@ -111,7 +112,7 @@ export default function PaperDetail({ arxivId, initialLiked, score, onLikedChang
         )}
       </div>
       <div className="text-base text-gray-500 mb-1">{authorStr}</div>
-      <div className="text-base text-gray-400 mb-4">{paper.published_date}</div>
+      <div className="text-base text-gray-400 mb-4">{formatTimestamp(paper.published_date)}</div>
 
       <div className="flex gap-2 mb-4">
         <button

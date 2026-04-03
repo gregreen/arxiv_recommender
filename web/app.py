@@ -8,6 +8,7 @@ Or from the project root:
     SECRET_KEY=<key> uvicorn web.app:app --reload
 """
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -20,6 +21,7 @@ from web.routers import auth, papers, recommendations, users
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logging.basicConfig(level=logging.DEBUG)
     if not SECRET_KEY:
         import warnings
         warnings.warn(

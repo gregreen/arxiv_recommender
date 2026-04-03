@@ -288,10 +288,10 @@ def fetch_arxiv_metadata(arxiv_ids: list[str]) -> dict[str, dict]:
             if name_el is not None and name_el.text:
                 authors.append(name_el.text.strip())
 
-        # published: "2024-10-01T00:00:00Z" → "2024-10-01"
+        # published: full ISO 8601 timestamp, e.g. "2024-10-01T14:12:45Z"
         published_date = None
         if published_el is not None and published_el.text:
-            published_date = published_el.text.strip()[:10]
+            published_date = published_el.text.strip()
 
         # categories: term attribute on each <category> element
         categories = [
