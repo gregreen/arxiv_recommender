@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { logout } from "../api/auth";
 import { useAuth } from "../AuthContext";
+import { getMyPapers } from "../api/user";
 import RecommendationList from "../components/RecommendationList";
 import PaperDetail from "../components/PaperDetail";
 
@@ -10,9 +11,19 @@ export default function MainLayout() {
   const [selectedArxivId, setSelectedArxivId] = useState<string | null>(null);
   const [selectedLiked, setSelectedLiked] = useState<number | null>(null);
   const [selectedScore, setSelectedScore] = useState<number | null>(null);
-  // Track liked values that the user has changed this session so re-selecting
-  // a paper doesn't reset the button back to its original state.
+  // Liked map: initialised from the server on mount so previously-liked papers
+  // show the correct colour immediately, then updated on every user interaction.
   const [likedCache, setLikedCache] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    getMyPapers()
+      .then((papers) => {
+        const map: Record<string, number> = {};
+        for (const p of papers) map[p.arxiv_id] = p.liked;
+        setLikedCache(map);
+      })
+      .catch(() => {}); // non-fatal; cache stays empty
+  }, []);
 
   async function handleLogout() {
     await logout().catch(() => {});
