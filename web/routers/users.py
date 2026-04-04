@@ -24,14 +24,16 @@ from web.dependencies import get_current_user, get_db
 
 router = APIRouter(prefix="/users/me", tags=["users"])
 
-_ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
+_NEW_ID_RE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
+_OLD_ID_RE = re.compile(r"^[a-z][a-z-]*(\.[A-Z]{2})?/\d{7}(v\d+)?$")
 _ADS_IMPORT_LIMIT = 64
 
 
 def _validate_arxiv_id(arxiv_id: str) -> str:
     """Strip version suffix and validate format. Returns clean ID or raises 422."""
-    clean = re.sub(r"v\d+$", "", arxiv_id.strip())
-    if not _ARXIV_ID_RE.match(arxiv_id.strip()):
+    stripped = arxiv_id.strip()
+    clean = re.sub(r"v\d+$", "", stripped)
+    if not (_NEW_ID_RE.match(stripped) or _OLD_ID_RE.match(stripped)):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid arXiv ID format: {arxiv_id!r}",
@@ -123,7 +125,7 @@ def import_ads(
     db: sqlite3.Connection = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    found_ids = re.findall(r"arXiv:(\d{4}\.\d{4,5})", body.text)
+    found_ids = re.findall(r"arXiv:((?:\d{4}\.\d{4,5}|[a-z][a-z-]*(?:\.[A-Z]{2})?/\d{7}))(?:v\d+)?", body.text)
     # Deduplicate while preserving order
     seen: set[str] = set()
     unique_ids = [aid for aid in found_ids if not (aid in seen or seen.add(aid))]  # type: ignore[func-returns-value]
