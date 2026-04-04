@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { logout } from "../api/auth";
 import { useAuth } from "../AuthContext";
 import { getMyPapers } from "../api/user";
+import NavMenu from "../components/NavMenu";
 import RecommendationList from "../components/RecommendationList";
 import PaperDetail from "../components/PaperDetail";
 
@@ -49,7 +50,7 @@ export default function MainLayout() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
+    <div className="flex flex-col h-screen overflow-x-hidden bg-gray-50">
       {/* Navbar */}
       <nav className="flex items-center gap-4 px-4 py-2 bg-white border-b border-gray-200 shrink-0">
         <span className="font-bold text-blue-700 text-lg">arXiv Recommender</span>
@@ -59,22 +60,14 @@ export default function MainLayout() {
         >
           Library
         </Link>
-        <div className="ml-auto flex items-center gap-3">
-          <span className="text-sm text-gray-500">{user?.email}</span>
-          <button
-            onClick={handleLogout}
-            className="text-sm text-gray-500 hover:text-red-600 transition-colors"
-          >
-            Sign out
-          </button>
-        </div>
+        <NavMenu email={user?.email} onLogout={handleLogout} />
       </nav>
 
       {/* Two-pane body */}
       <div className="relative flex flex-1 overflow-hidden">
         {/* Left: recommendation list */}
         <div className={`absolute inset-0 w-full flex flex-col bg-white transition-transform duration-300 ease-in-out
-          md:relative md:w-96 md:shrink-0 md:border-r md:border-gray-200 md:translate-x-0
+          md:relative md:w-96 md:min-w-0 md:shrink-0 md:border-r md:border-gray-200 md:translate-x-0
           ${selectedArxivId !== null ? "-translate-x-full" : "translate-x-0"}`}>
           <RecommendationList
             selectedArxivId={selectedArxivId}
@@ -85,7 +78,7 @@ export default function MainLayout() {
 
         {/* Right: paper detail */}
         <div className={`absolute inset-0 w-full flex flex-col transition-transform duration-300 ease-in-out
-          md:relative md:flex-1 md:translate-x-0
+          md:relative md:flex-1 md:min-w-0 md:translate-x-0
           ${selectedArxivId !== null ? "translate-x-0" : "translate-x-full"}`}>
           {/* Back button — mobile only */}
           <div className="md:hidden shrink-0 flex items-center px-4 py-2 bg-white border-b border-gray-200">
