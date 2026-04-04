@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS users (
     email         TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     is_active     INTEGER NOT NULL DEFAULT 0,
+    is_admin      INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -150,6 +151,8 @@ def init_app_db(path: str = APP_DB_PATH) -> None:
         if "is_active" not in cols:
             # Existing users default to active so they aren't locked out
             con.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+        if "is_admin" not in cols:
+            con.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
         con.commit()
     finally:
         con.close()

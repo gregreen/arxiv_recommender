@@ -19,8 +19,8 @@ export default function LoginPage() {
     try {
       await login(email, password);
       // Fetch user info after login to populate auth context
-      const data = await apiFetch<{ user_id: number; email: string }>("/api/auth/me");
-      setUser({ userId: data.user_id, email: data.email });
+      const data = await apiFetch<{ user_id: number; email: string; is_admin: boolean }>("/api/auth/me");
+      setUser({ userId: data.user_id, email: data.email, isAdmin: data.is_admin });
       navigate("/");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Login failed");

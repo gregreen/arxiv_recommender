@@ -8,13 +8,16 @@ POST /api/auth/logout    — clear JWT cookie
 
 import sqlite3
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from web.auth import create_access_token, hash_password, verify_password
 from web.dependencies import get_current_user, get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+limiter = Limiter(key_func=get_remote_address)
 
 
 class RegisterRequest(BaseModel):
@@ -51,7 +54,8 @@ def register(body: RegisterRequest, db: sqlite3.Connection = Depends(get_db)):
 
 
 @router.post("/login")
-def login(body: LoginRequest, response: Response, db: sqlite3.Connection = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, body: LoginRequest, response: Response, db: sqlite3.Connection = Depends(get_db)):
     row = db.execute(
         "SELECT id, password_hash, is_active FROM users WHERE email = ?", (body.email,)
     ).fetchone()
@@ -73,7 +77,7 @@ def login(body: LoginRequest, response: Response, db: sqlite3.Connection = Depen
         value=token,
         httponly=True,
         samesite="lax",
-        secure=False,   # set to True in production (HTTPS)
+        secure=True,    # requires HTTPS in production; browsers exempt localhost
         max_age=86400,  # 24 hours
     )
     return {"user_id": row["id"], "email": body.email}
@@ -87,4 +91,4 @@ def logout(response: Response):
 
 @router.get("/me")
 def me(user=Depends(get_current_user)):
-    return {"user_id": user["id"], "email": user["email"]}
+    return {"user_id": user["id"], "email": user["email"], "is_admin": bool(user["is_admin"])}

@@ -4,11 +4,23 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import MainLayout from "./pages/MainLayout";
 import LibraryPage from "./pages/LibraryPage";
+import AdminLayout from "./pages/AdminLayout";
+import AdminUsersPage from "./pages/AdminUsersPage";
+import AdminTasksPage from "./pages/AdminTasksPage";
+import AdminPapersPage from "./pages/AdminPapersPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
   if (isLoading) return <div className="flex items-center justify-center h-screen text-gray-500">Loading…</div>;
   if (!user) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
+function RequireAdmin({ children }: { children: React.ReactNode }) {
+  const { user, isLoading } = useAuth();
+  if (isLoading) return <div className="flex items-center justify-center h-screen text-gray-500">Loading…</div>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!user.isAdmin) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -34,6 +46,19 @@ export default function App() {
             </RequireAuth>
           }
         />
+        <Route
+          path="/admin"
+          element={
+            <RequireAdmin>
+              <AdminLayout />
+            </RequireAdmin>
+          }
+        >
+          <Route index element={<Navigate to="users" replace />} />
+          <Route path="users"   element={<AdminUsersPage />} />
+          <Route path="tasks"   element={<AdminTasksPage />} />
+          <Route path="papers"  element={<AdminPapersPage />} />
+        </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

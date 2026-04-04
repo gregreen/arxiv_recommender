@@ -11,6 +11,7 @@ import { apiFetch } from "./api/client";
 interface AuthUser {
   userId: number;
   email: string;
+  isAdmin: boolean;
 }
 
 interface AuthState {
@@ -33,12 +34,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Check if we have a valid session by fetching the current user.
-    apiFetch<{ user_id: number; email: string }>("/api/auth/me")
+    apiFetch<{ user_id: number; email: string; is_admin: boolean }>("/api/auth/me")
       .then((data) => {
-        setUserState({ userId: data.user_id, email: data.email });
+        setUserState({ userId: data.user_id, email: data.email, isAdmin: data.is_admin });
         localStorage.setItem(
           "auth_user",
-          JSON.stringify({ userId: data.user_id, email: data.email })
+          JSON.stringify({ userId: data.user_id, email: data.email, isAdmin: data.is_admin })
         );
       })
       .catch((err) => {

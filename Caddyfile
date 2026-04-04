@@ -1,0 +1,16 @@
+# Caddyfile — production HTTPS reverse proxy for arXiv Recommender
+#
+# Prerequisites:
+#   1. Install Caddy: https://caddyserver.com/docs/install
+#   2. Point your domain's A record at this server's IP.
+#   3. Run uvicorn bound to localhost only:
+#        SECRET_KEY=<key> uvicorn web.app:app --host 127.0.0.1 --port 8000
+#   4. Start Caddy (as root or with cap_net_bind_service):
+#        caddy run --config Caddyfile
+#
+# Caddy automatically obtains and renews a Let's Encrypt TLS certificate.
+# Replace "yourdomain.com" with your actual domain.
+
+yourdomain.com {
+    reverse_proxy 127.0.0.1:8000
+}

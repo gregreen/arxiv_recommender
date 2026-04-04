@@ -44,7 +44,7 @@ def get_current_user(
         )
 
     row = db.execute(
-        "SELECT id, email, is_active FROM users WHERE id = ?", (user_id,)
+        "SELECT id, email, is_active, is_admin FROM users WHERE id = ?", (user_id,)
     ).fetchone()
 
     if row is None:
@@ -55,3 +55,20 @@ def get_current_user(
             detail="Account pending review. Contact the administrator.",
         )
     return row
+
+
+def get_admin_user(
+    db: sqlite3.Connection = Depends(get_db),
+    user: sqlite3.Row = Depends(get_current_user),
+) -> sqlite3.Row:
+    """
+    Require the current user to be an active admin (is_admin=1).
+
+    Raises 403 if the user is not an admin.
+    """
+    if not user["is_admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required.",
+        )
+    return user
