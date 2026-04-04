@@ -91,7 +91,8 @@ TaskStatus = Literal["pending", "running", "done", "failed"]
 def list_tasks(
     type:   str | None = Query(default=None),
     status_: str | None = Query(default=None, alias="status"),
-    limit:  int = Query(default=50, ge=1, le=500),
+    q:      str | None = Query(default=None, description="Filter by payload substring"),
+    limit:  int = Query(default=50, ge=1, le=8192),
     offset: int = Query(default=0, ge=0),
     db: sqlite3.Connection = Depends(get_db),
     _admin=Depends(get_admin_user),
@@ -104,6 +105,9 @@ def list_tasks(
     if status_:
         conditions.append("status = ?")
         params.append(status_)
+    if q:
+        conditions.append("payload LIKE ?")
+        params.append(f"%{q}%")
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     rows = db.execute(
         f"""

@@ -52,12 +52,14 @@ export function patchAdminUser(userId: number, is_active: boolean): Promise<{ us
 export function getAdminTasks(params?: {
   type?: string;
   status?: string;
+  q?: string;
   limit?: number;
   offset?: number;
 }): Promise<Paginated<AdminTask>> {
   const q = new URLSearchParams();
   if (params?.type)   q.set("type",   params.type);
   if (params?.status) q.set("status", params.status);
+  if (params?.q)      q.set("q",      params.q);
   if (params?.limit  !== undefined) q.set("limit",  String(params.limit));
   if (params?.offset !== undefined) q.set("offset", String(params.offset));
   const qs = q.toString() ? `?${q}` : "";
