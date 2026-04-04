@@ -42,6 +42,12 @@ export default function MainLayout() {
     setLikedCache((prev) => ({ ...prev, [arxivId]: liked }));
   }
 
+  function handleClearSelection() {
+    setSelectedArxivId(null);
+    setSelectedLiked(null);
+    setSelectedScore(null);
+  }
+
   return (
     <div className="flex flex-col h-screen bg-gray-50">
       {/* Navbar */}
@@ -65,9 +71,11 @@ export default function MainLayout() {
       </nav>
 
       {/* Two-pane body */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="relative flex flex-1 overflow-hidden">
         {/* Left: recommendation list */}
-        <div className="w-96 shrink-0 border-r border-gray-200 bg-white overflow-hidden flex flex-col">
+        <div className={`absolute inset-0 w-full flex flex-col bg-white transition-transform duration-300 ease-in-out
+          md:relative md:w-96 md:shrink-0 md:border-r md:border-gray-200 md:translate-x-0
+          ${selectedArxivId !== null ? "-translate-x-full" : "translate-x-0"}`}>
           <RecommendationList
             selectedArxivId={selectedArxivId}
             onSelect={handleSelect}
@@ -76,13 +84,26 @@ export default function MainLayout() {
         </div>
 
         {/* Right: paper detail */}
-        <div className="flex-1 overflow-hidden">
-          <PaperDetail
-            arxivId={selectedArxivId}
-            initialLiked={selectedLiked}
-            score={selectedScore}
-            onLikedChange={handleLikedChange}
-          />
+        <div className={`absolute inset-0 w-full flex flex-col transition-transform duration-300 ease-in-out
+          md:relative md:flex-1 md:translate-x-0
+          ${selectedArxivId !== null ? "translate-x-0" : "translate-x-full"}`}>
+          {/* Back button — mobile only */}
+          <div className="md:hidden shrink-0 flex items-center px-4 py-2 bg-white border-b border-gray-200">
+            <button
+              onClick={handleClearSelection}
+              className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 transition-colors"
+            >
+              ← Return to list
+            </button>
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <PaperDetail
+              arxivId={selectedArxivId}
+              initialLiked={selectedLiked}
+              score={selectedScore}
+              onLikedChange={handleLikedChange}
+            />
+          </div>
         </div>
       </div>
     </div>

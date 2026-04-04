@@ -24,6 +24,11 @@ export default function LibraryPage() {
     setSelectedLiked(likedCache[arxivId] ?? liked);
   }
 
+  function handleClearSelection() {
+    setSelectedArxivId(null);
+    setSelectedLiked(null);
+  }
+
   function handleLikedChange(arxivId: string, liked: 1 | -1 | 0) {
     setSelectedLiked(liked);
     setLikedCache((prev) => ({ ...prev, [arxivId]: liked }));
@@ -136,9 +141,11 @@ export default function LibraryPage() {
         </div>
       </nav>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="relative flex flex-1 overflow-hidden">
         {/* Left: library management */}
-        <div className="w-96 shrink-0 border-r border-gray-200 overflow-y-auto p-6">
+        <div className={`absolute inset-0 w-full overflow-y-auto p-6 bg-white transition-transform duration-300 ease-in-out
+          md:relative md:w-96 md:shrink-0 md:border-r md:border-gray-200 md:translate-x-0
+          ${selectedArxivId !== null ? "-translate-x-full" : "translate-x-0"}`}>
         {/* Add paper */}
         <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
           <h2 className="font-semibold text-gray-800 mb-3">Add Paper</h2>
@@ -267,12 +274,25 @@ export default function LibraryPage() {
         </div>
 
         {/* Right: paper detail */}
-        <div className="flex-1 overflow-hidden">
-          <PaperDetail
-            arxivId={selectedArxivId}
-            initialLiked={selectedLiked}
-            onLikedChange={handleLikedChange}
-          />
+        <div className={`absolute inset-0 w-full flex flex-col transition-transform duration-300 ease-in-out
+          md:relative md:flex-1 md:translate-x-0
+          ${selectedArxivId !== null ? "translate-x-0" : "translate-x-full"}`}>
+          {/* Back button — mobile only */}
+          <div className="md:hidden shrink-0 flex items-center px-4 py-2 bg-white border-b border-gray-200">
+            <button
+              onClick={handleClearSelection}
+              className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 transition-colors"
+            >
+              ← Return to list
+            </button>
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <PaperDetail
+              arxivId={selectedArxivId}
+              initialLiked={selectedLiked}
+              onLikedChange={handleLikedChange}
+            />
+          </div>
         </div>
       </div>
     </div>
