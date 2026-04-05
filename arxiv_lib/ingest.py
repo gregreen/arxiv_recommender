@@ -463,8 +463,6 @@ def fetch_daily_mailing_metadata(category: str) -> dict[str, dict]:
     except requests.RequestException as e:
         raise RuntimeError(f"Failed to fetch Atom feed for {category}: {e}")
     
-    print(resp.text)
-
     root = ET.fromstring(resp.text)
     results: dict[str, dict] = {}
 
@@ -685,9 +683,17 @@ def fetch_oaipmh_metadata(date: str, category: str) -> dict[str, dict]:
             authors: list[str] = []
             if authors_el is not None:
                 for author_el in authors_el.findall(f"{{{_ARXIV_NS}}}author"):
-                    name_el = author_el.find(f"{{{_ARXIV_NS}}}name")
-                    if name_el is not None and name_el.text:
-                        authors.append(name_el.text.strip())
+                    keyname_el   = author_el.find(f"{{{_ARXIV_NS}}}keyname")
+                    forenames_el = author_el.find(f"{{{_ARXIV_NS}}}forenames")
+                    suffix_el    = author_el.find(f"{{{_ARXIV_NS}}}suffix")
+                    if keyname_el is None or not keyname_el.text:
+                        continue
+                    name = keyname_el.text.strip()
+                    if forenames_el is not None and forenames_el.text:
+                        name = forenames_el.text.strip() + " " + name
+                    if suffix_el is not None and suffix_el.text:
+                        name = name + " " + suffix_el.text.strip()
+                    authors.append(name)
 
             # Treat the creation date as midnight US Eastern and convert to UTC
             # so published_date is a proper UTC timestamp rather than a bare date.
