@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
-import { getAdminTasks, type AdminTask } from "../api/admin";
+import { getAdminTasks, resetAdminTask, deleteAdminTask, type AdminTask } from "../api/admin";
 import { formatTimestamp } from "../utils";
 
 // ---------------------------------------------------------------------------
 // Column resize hook
 // ---------------------------------------------------------------------------
 
-type ColKey = "id" | "type" | "payload" | "status" | "attempts" | "created_at" | "started_at" | "completed_at";
+type ColKey = "id" | "type" | "payload" | "status" | "attempts" | "created_at" | "started_at" | "completed_at" | "actions";
 
 const DEFAULT_WIDTHS: Record<ColKey, number> = {
   id:            60,
@@ -17,6 +17,7 @@ const DEFAULT_WIDTHS: Record<ColKey, number> = {
   created_at:   170,
   started_at:   170,
   completed_at: 170,
+  actions:      110,
 };
 
 function useResizableColumns() {
@@ -46,6 +47,7 @@ function useResizableColumns() {
 type SortDir = "asc" | "desc";
 
 function sortTasks(items: AdminTask[], col: ColKey, dir: SortDir): AdminTask[] {
+  if (col === "actions") return items;
   return [...items].sort((a, b) => {
     const av = a[col] ?? "";
     const bv = b[col] ?? "";
@@ -79,6 +81,7 @@ const COLS: { key: ColKey; label: string }[] = [
   { key: "created_at",   label: "Created"   },
   { key: "started_at",   label: "Started"   },
   { key: "completed_at", label: "Completed" },
+  { key: "actions",      label: "Actions"   },
 ];
 
 // ---------------------------------------------------------------------------
@@ -100,6 +103,7 @@ export default function AdminTasksPage() {
   // Client-side sort
   const [sortCol, setSortCol] = useState<ColKey>("id");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [actionPending, setActionPending] = useState<Set<number>>(new Set());
 
   const { widths, onDragStart } = useResizableColumns();
 
@@ -122,6 +126,7 @@ export default function AdminTasksPage() {
   }, [load, typeFilter, statusFilter, payloadQuery]);
 
   function handleSortClick(col: ColKey) {
+    if (col === "actions") return;
     if (col === sortCol) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortCol(col); setSortDir("asc"); }
   }
@@ -131,10 +136,32 @@ export default function AdminTasksPage() {
     setPayloadQuery(payloadInput);
   }
 
+  function handleReset(t: AdminTask) {
+    setActionPending((s) => new Set(s).add(t.id));
+    resetAdminTask(t.id)
+      .then((updated) => {
+        setAllItems((items) => items.map((item) => item.id === t.id ? updated : item));
+      })
+      .catch(() => setError(`Failed to reset task ${t.id}.`))
+      .finally(() => setActionPending((s) => { const n = new Set(s); n.delete(t.id); return n; }));
+  }
+
+  function handleDelete(t: AdminTask) {
+    if (!window.confirm(`Delete task #${t.id} (${t.type})? This cannot be undone.`)) return;
+    setActionPending((s) => new Set(s).add(t.id));
+    deleteAdminTask(t.id)
+      .then(() => {
+        setAllItems((items) => items.filter((item) => item.id !== t.id));
+        setTotal((n) => n - 1);
+      })
+      .catch(() => setError(`Failed to delete task ${t.id}.`))
+      .finally(() => setActionPending((s) => { const n = new Set(s); n.delete(t.id); return n; }));
+  }
+
   const sorted = sortTasks(allItems, sortCol, sortDir);
 
   function SortIcon({ col }: { col: ColKey }) {
-    if (col !== sortCol) return <span className="ml-1 text-gray-300">↕</span>;
+    if (col === "actions" || col !== sortCol) return col === "actions" ? null : <span className="ml-1 text-gray-300">↕</span>;
     return <span className="ml-1">{sortDir === "asc" ? "↑" : "↓"}</span>;
   }
 
@@ -229,9 +256,9 @@ export default function AdminTasksPage() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">Loading…</td></tr>
+              <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-400">Loading…</td></tr>
             ) : sorted.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">No tasks found.</td></tr>
+              <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-400">No tasks found.</td></tr>
             ) : sorted.map((t) => (
               <tr key={t.id} className="hover:bg-gray-50 transition-colors">
                 <td className="px-3 py-2.5 text-gray-400 tabular-nums truncate">{t.id}</td>
@@ -249,6 +276,26 @@ export default function AdminTasksPage() {
                 <td className="px-3 py-2.5 text-gray-400 text-xs tabular-nums truncate">{formatTimestamp(t.created_at)}</td>
                 <td className="px-3 py-2.5 text-gray-400 text-xs tabular-nums truncate">{t.started_at ? formatTimestamp(t.started_at) : "—"}</td>
                 <td className="px-3 py-2.5 text-gray-400 text-xs tabular-nums truncate">{t.completed_at ? formatTimestamp(t.completed_at) : "—"}</td>
+                <td className="px-3 py-2.5">
+                  <div className="flex gap-1">
+                    {(t.status === "failed" || t.status === "running") && (
+                      <button
+                        disabled={actionPending.has(t.id)}
+                        onClick={() => handleReset(t)}
+                        className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-blue-100 hover:text-blue-700 disabled:opacity-40 transition-colors"
+                      >
+                        Reset
+                      </button>
+                    )}
+                    <button
+                      disabled={actionPending.has(t.id)}
+                      onClick={() => handleDelete(t)}
+                      className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-red-100 hover:text-red-700 disabled:opacity-40 transition-colors"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>

@@ -66,6 +66,14 @@ export function getAdminTasks(params?: {
   return apiFetch(`/api/admin/tasks${qs}`);
 }
 
+export function resetAdminTask(taskId: number): Promise<AdminTask> {
+  return apiFetch(`/api/admin/tasks/${taskId}/reset`, { method: "POST" });
+}
+
+export function deleteAdminTask(taskId: number): Promise<void> {
+  return apiFetch(`/api/admin/tasks/${taskId}`, { method: "DELETE" });
+}
+
 export function getAdminPapers(params?: {
   q?: string;
   limit?: number;

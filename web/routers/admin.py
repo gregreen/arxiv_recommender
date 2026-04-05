@@ -144,6 +144,51 @@ def list_tasks(
     }
 
 
+@router.post("/tasks/{task_id}/reset")
+def reset_task(
+    task_id: int,
+    db: sqlite3.Connection = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    row = db.execute("SELECT * FROM task_queue WHERE id = ?", (task_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found.")
+    db.execute(
+        """
+        UPDATE task_queue
+           SET status = 'pending', attempts = 0, error = NULL,
+               started_at = NULL, completed_at = NULL
+         WHERE id = ?
+        """,
+        (task_id,),
+    )
+    db.commit()
+    row = db.execute("SELECT * FROM task_queue WHERE id = ?", (task_id,)).fetchone()
+    return {
+        "id":           row["id"],
+        "type":         row["type"],
+        "payload":      row["payload"],
+        "status":       row["status"],
+        "attempts":     row["attempts"],
+        "created_at":   row["created_at"],
+        "started_at":   row["started_at"],
+        "completed_at": row["completed_at"],
+        "error":        row["error"],
+    }
+
+
+@router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_task(
+    task_id: int,
+    db: sqlite3.Connection = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    cur = db.execute("DELETE FROM task_queue WHERE id = ?", (task_id,))
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found.")
+    db.commit()
+
+
 # ---------------------------------------------------------------------------
 # Papers
 # ---------------------------------------------------------------------------
