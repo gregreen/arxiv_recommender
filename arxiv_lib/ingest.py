@@ -525,6 +525,195 @@ def fetch_daily_mailing_metadata(category: str) -> dict[str, dict]:
     return results
 
 
+# OAI-PMH backfill
+# ---------------------------------------------------------------------------
+
+# Maps the first component of an arXiv archive name to its OAI-PMH group.
+# Used to build the set specifier for ListRecords (format: group:archive:category).
+_ARCHIVE_TO_GROUP: dict[str, str] = {
+    "cs":       "cs",
+    "math":     "math",
+    "stat":     "stat",
+    "astro-ph": "physics",
+    "cond-mat": "physics",
+    "gr-qc":    "physics",
+    "hep-ex":   "physics",
+    "hep-lat":  "physics",
+    "hep-ph":   "physics",
+    "hep-th":   "physics",
+    "nlin":     "physics",
+    "nucl-ex":  "physics",
+    "nucl-th":  "physics",
+    "physics":  "physics",
+    "quant-ph": "physics",
+}
+
+
+def _category_to_oai_set(category: str) -> str:
+    """Return the OAI-PMH set specifier for an arXiv category string.
+
+    Examples:
+        "astro-ph"    → "physics:astro-ph"
+        "astro-ph.GA" → "physics:astro-ph:GA"
+        "cs.LG"       → "cs:cs:LG"
+        "cs"          → "cs:cs"
+        "stat.ML"     → "stat:stat:ML"
+    """
+    parts    = category.split(".", 1)
+    archive  = parts[0]
+    group    = _ARCHIVE_TO_GROUP.get(archive, archive)
+    if len(parts) == 1:
+        return f"{group}:{archive}"
+    subcategory = parts[1]  # just the suffix, e.g. "GA" not "astro-ph.GA"
+    return f"{group}:{archive}:{subcategory}"
+
+
+def fetch_oaipmh_metadata(date: str, category: str) -> dict[str, dict]:
+    """
+    Fetch metadata for papers *first submitted* on *date* in *category* using
+    the arXiv OAI-PMH v2.0 interface.
+
+    URL: https://oaipmh.arxiv.org/oai
+
+    The OAI-PMH datestamp (``from``/``until``) is the last-modification time,
+    not the submission date.  All records whose datestamp falls on *date* are
+    downloaded, then filtered to those whose ``<created>`` field equals *date*
+    so that replacements and metadata-only updates are excluded.
+
+    *date* must be an ISO 8601 date string: ``YYYY-MM-DD``.
+
+    Returns a dict mapping arXiv ID → metadata dict with keys:
+        title, authors (list), abstract, published_date (ISO 8601 UTC), categories (list).
+
+    Returns ``{}`` if no records match (e.g. weekend, holiday, or future date).
+    Raises RuntimeError on HTTP or XML errors.
+    """
+    _OAI_NS   = "http://www.openarchives.org/OAI/2.0/"
+    _ARXIV_NS = "http://arxiv.org/OAI/arXiv/"
+    _logger   = logging.getLogger(__name__)
+
+    raise_on_arxiv_category(category)
+
+    # The OAI-PMH datestamp is the announcement/modification date, not the
+    # submission date.  New papers are typically submitted 1 day before
+    # announcement (up to 3 days for weekend/holiday submissions).  We accept
+    # any record whose <created> date is within 7 days before *date* to capture
+    # genuine new submissions while rejecting replacements (whose <created> is
+    # months or years earlier).
+    from datetime import date as _date_type, datetime as _datetime, timedelta as _timedelta, timezone as _timezone
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    _ET = _ZoneInfo("America/New_York")
+    anchor_date      = _date_type.fromisoformat(date)
+    created_earliest = (anchor_date - _timedelta(days=7)).isoformat()
+
+    # published_date is the announcement date (midnight US Eastern → UTC),
+    # the same for every paper in this batch.
+    announced_utc    = _datetime(*[int(p) for p in date.split("-")], tzinfo=_ET).astimezone(_timezone.utc)
+    published_date   = announced_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    base_url = "https://oaipmh.arxiv.org/oai"
+    set_spec = _category_to_oai_set(category)
+    params: dict = {
+        "verb":           "ListRecords",
+        "from":           date,
+        "until":          date,
+        "metadataPrefix": "arXiv",
+        "set":            set_spec,
+    }
+
+    results: dict[str, dict] = {}
+
+    while True:
+        resp = requests.get(
+            base_url, params=params,
+            headers={"User-Agent": USER_AGENT}, timeout=60,
+        )
+        try:
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            raise RuntimeError(f"OAI-PMH request failed for {category} on {date}: {e}")
+
+        try:
+            root = ET.fromstring(resp.content)
+        except ET.ParseError as e:
+            raise RuntimeError(f"OAI-PMH XML parse error for {category} on {date}: {e}")
+
+        # Check for OAI-PMH error element
+        error_el = root.find(f"{{{_OAI_NS}}}error")
+        if error_el is not None:
+            code = error_el.get("code", "")
+            if code == "noRecordsMatch":
+                _logger.info("OAI-PMH: no records for %s on %s", category, date)
+                return {}
+            raise RuntimeError(
+                f"OAI-PMH error ({code}) for {category} on {date}: {error_el.text}"
+            )
+
+        list_records = root.find(f"{{{_OAI_NS}}}ListRecords")
+        if list_records is None:
+            break
+
+        for record in list_records.findall(f"{{{_OAI_NS}}}record"):
+            header = record.find(f"{{{_OAI_NS}}}header")
+            if header is not None and header.get("status") == "deleted":
+                continue
+
+            id_el = header.find(f"{{{_OAI_NS}}}identifier") if header is not None else None
+            if id_el is None or not id_el.text:
+                continue
+            arxiv_id = re.sub(r"^oai:arXiv\.org:", "", id_el.text.strip())
+
+            metadata_el = record.find(f"{{{_OAI_NS}}}metadata")
+            if metadata_el is None:
+                continue
+            arxiv_el = metadata_el.find(f"{{{_ARXIV_NS}}}arXiv")
+            if arxiv_el is None:
+                continue
+
+            # Filter to papers first submitted within 7 days of *date*,
+            # rejecting replacements/updates whose <created> is much earlier.
+            created_el = arxiv_el.find(f"{{{_ARXIV_NS}}}created")
+            created_str = (created_el.text or "").strip() if created_el is not None else ""
+            if not created_str or not (created_earliest <= created_str <= date):
+                continue
+
+            title_el    = arxiv_el.find(f"{{{_ARXIV_NS}}}title")
+            abstract_el = arxiv_el.find(f"{{{_ARXIV_NS}}}abstract")
+            cats_el     = arxiv_el.find(f"{{{_ARXIV_NS}}}categories")
+            authors_el  = arxiv_el.find(f"{{{_ARXIV_NS}}}authors")
+
+            title    = " ".join((title_el.text    or "").split()) if title_el    is not None else ""
+            abstract = " ".join((abstract_el.text or "").split()) if abstract_el is not None else ""
+            categories = (cats_el.text or "").split() if cats_el is not None else []
+
+            authors: list[str] = []
+            if authors_el is not None:
+                for author_el in authors_el.findall(f"{{{_ARXIV_NS}}}author"):
+                    name_el = author_el.find(f"{{{_ARXIV_NS}}}name")
+                    if name_el is not None and name_el.text:
+                        authors.append(name_el.text.strip())
+
+            # Treat the creation date as midnight US Eastern and convert to UTC
+            # so published_date is a proper UTC timestamp rather than a bare date.
+            results[arxiv_id] = {
+                "title":          title,
+                "authors":        authors,
+                "abstract":       abstract,
+                "published_date": published_date,
+                "categories":     categories,
+            }
+
+        # Follow resumption token if present
+        token_el = list_records.find(f"{{{_OAI_NS}}}resumptionToken")
+        if token_el is not None and token_el.text and token_el.text.strip():
+            params = {"verb": "ListRecords", "resumptionToken": token_el.text.strip()}
+        else:
+            break
+
+    _logger.info("OAI-PMH: %d new paper(s) for %s on %s", len(results), category, date)
+    return results
+
+
 # arXiv category validation and mailing list
 # ---------------------------------------------------------------------------
 
