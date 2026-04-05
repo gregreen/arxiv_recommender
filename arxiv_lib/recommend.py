@@ -207,26 +207,18 @@ def recommendations_are_stale(
 
     Stale if:
     - No recommendations exist for this user, OR
-    - The stored model_hash differs from the current hash, OR
-    - Any paper has been embedded after the last generation time.
+    - The stored model_hash differs from the current hash.
     """
     row = con.execute(
-        "SELECT MIN(generated_at), model_hash FROM recommendations WHERE user_id = ?",
+        "SELECT model_hash FROM recommendations WHERE user_id = ? LIMIT 1",
         (user_id,),
     ).fetchone()
 
-    if row is None or row[0] is None:
+    if row is None:
         return True  # no cached recommendations
 
-    oldest_generated_at, cached_hash = row
-    if cached_hash != model_hash:
-        return True  # liked/disliked set or scoring version changed
-
-    new_paper = con.execute(
-        "SELECT 1 FROM papers WHERE embedded_at > ? LIMIT 1",
-        (oldest_generated_at,),
-    ).fetchone()
-    return new_paper is not None
+    cached_hash = row[0]
+    return cached_hash != model_hash
 
 
 def get_or_train_model(

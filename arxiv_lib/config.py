@@ -51,10 +51,6 @@ RBF_GAMMAS = np.logspace(-6, 6, num=6, base=2)
 # Number of SVD components extracted from the positive-vector matrix.
 RBF_PCA_COMPONENTS = 8
 
-# Minimum interval (seconds) between model retrains for a given user,
-# even if their liked-paper set has changed.
-RECOMMEND_MIN_RETRAIN_INTERVAL = 3600
-
 # Background negative papers used for training all users' scoring models.
 # Selecting the oldest N embedded papers is deterministic and stable — the
 # set does not change as new papers arrive (they are always newer), so it
