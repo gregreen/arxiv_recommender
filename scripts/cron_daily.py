@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
 """
-Daily ingest cron script — enqueues 'embed' tasks for new arXiv papers.
+Daily ingest cron script — fetches metadata from the arXiv RSS Atom feed and
+enqueues 'embed' tasks for new papers.
 
 For each category in DAILY_INGEST_CATEGORIES (from config.py), fetches the
-arXiv new-submissions listing and enqueues an 'embed' task for every paper
-not already in the papers table.
+arXiv daily mailing via the official Atom feed, writes metadata directly to
+the papers table, and enqueues an 'embed' task for every new paper.  This
+gives full ISO 8601 UTC timestamps on published_date (as opposed to the
+date-only values returned by Semantic Scholar).
 
 Run this once per day after the arXiv mailing is published (typically ~14:00
-US Eastern on weekdays).  The ingest daemon will then process the tasks.
+US Eastern on weekdays).  The embed daemon will then process the tasks.
 
 Usage:
     python3 scripts/cron_daily.py                    # uses DAILY_INGEST_CATEGORIES
     python3 scripts/cron_daily.py astro-ph.GA cs.LG  # override categories
     python3 scripts/cron_daily.py --db /path/to/app.db
 
-Cron example (runs at 14:30 UTC Mon–Fri):
-    30 14 * * 1-5  cd /path/to/arxiv_recommender && python3 scripts/cron_daily.py
+Cron example (runs at 19:00 UTC Mon–Fri, after the 14:00 ET cutoff):
+    0 19 * * 1-5  cd /path/to/arxiv_recommender && python3 scripts/cron_daily.py
 """
 
 import argparse
@@ -29,7 +32,7 @@ if _project_root not in sys.path:
 
 from arxiv_lib.appdb import enqueue_task, get_connection, init_app_db
 from arxiv_lib.config import APP_DB_PATH, DAILY_INGEST_CATEGORIES
-from arxiv_lib.ingest import fetch_latest_mailing_ids
+from arxiv_lib.ingest import fetch_daily_mailing_metadata, write_to_arxiv_metadata_cache
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,9 +50,10 @@ def _already_known(con, arxiv_id: str) -> bool:
 
 def run(categories: list[str], db_path: str) -> int:
     """
-    Fetch new paper IDs for each category and enqueue embed tasks.
+    Fetch metadata from the arXiv RSS Atom feed for each category and enqueue
+    embed tasks for new papers.
 
-    Returns the total number of newly enqueued tasks.
+    Returns the total number of newly enqueued embed tasks.
     """
     init_app_db(db_path)
     con = get_connection(db_path)
@@ -59,25 +63,32 @@ def run(categories: list[str], db_path: str) -> int:
 
     try:
         for category in categories:
-            log.info("Fetching new submissions for category: %s", category)
+            log.info("Fetching daily mailing for category: %s", category)
             try:
-                ids = fetch_latest_mailing_ids(category)
+                metadata = fetch_daily_mailing_metadata(category)
             except RuntimeError as e:
-                log.error("  Failed to fetch mailing for %s: %s", category, e)
+                log.error("  Failed to fetch Atom feed for %s: %s", category, e)
                 continue
+
+            log.info("  Feed returned %d new paper(s).", len(metadata))
+
+            # Write all fetched metadata to the papers table in one batch
+            write_to_arxiv_metadata_cache(metadata)
 
             enqueued = 0
             skipped = 0
-            for arxiv_id in ids:
+            for arxiv_id in metadata:
                 if _already_known(con, arxiv_id):
+                    # write_to_arxiv_metadata_cache uses INSERT OR REPLACE, so
+                    # metadata is refreshed; but we skip re-enqueueing embed.
                     skipped += 1
                 else:
-                    enqueue_task(con, "fetch_meta", {"arxiv_id": arxiv_id})
+                    enqueue_task(con, "embed", {"arxiv_id": arxiv_id})
                     enqueued += 1
 
             con.commit()
             log.info(
-                "  %s: %d new task(s) enqueued, %d already known → skipped.",
+                "  %s: %d embed task(s) enqueued, %d already known → skipped.",
                 category, enqueued, skipped,
             )
             total_enqueued += enqueued

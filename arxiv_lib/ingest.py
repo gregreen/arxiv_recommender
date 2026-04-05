@@ -436,6 +436,95 @@ def fetch_arxiv_metadata_s2(
 
 
 # ---------------------------------------------------------------------------
+# arXiv RSS Atom feed (daily mailing)
+# ---------------------------------------------------------------------------
+
+def fetch_daily_mailing_metadata(category: str) -> dict[str, dict]:
+    """
+    Fetch full metadata for all *new* papers in today's arXiv mailing for
+    *category* via the official RSS Atom feed.
+
+    URL: https://rss.arxiv.org/atom/{category}
+
+    Returns a dict mapping arXiv ID → metadata dict with keys:
+        title, authors (list), abstract, published_date (ISO 8601 UTC), categories (list).
+
+    Only entries with announce_type ``new`` are included; replacements and
+    cross-listings are skipped.  published_date is converted to UTC if the
+    feed timestamp is timezone-aware.
+    """
+    _ATOM_NS  = "http://www.w3.org/2005/Atom"
+    _DC_NS    = "http://purl.org/dc/elements/1.1/"
+    _ARXIV_NS = "http://arxiv.org/schemas/atom"
+    _logger   = logging.getLogger(__name__)
+
+    raise_on_arxiv_category(category)
+
+    url  = f"https://rss.arxiv.org/atom/{category}"
+    resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=30)
+    try:
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        raise RuntimeError(f"Failed to fetch Atom feed for {category}: {e}")
+    
+    print(resp.text)
+
+    root = ET.fromstring(resp.text)
+    results: dict[str, dict] = {}
+
+    for entry in root.findall(f"{{{_ATOM_NS}}}entry"):
+        # Filter to new submissions only
+        announce_el = entry.find(f"{{{_ARXIV_NS}}}announce_type")
+        if announce_el is None or announce_el.text != "new":
+            continue
+
+        id_el = entry.find(f"{{{_ATOM_NS}}}id")
+        if id_el is None or not id_el.text:
+            continue
+        # Strip "oai:arXiv.org:" prefix and version suffix
+        raw_id = id_el.text.strip()
+        raw_id = re.sub(r"^oai:arXiv\.org:", "", raw_id)
+        arxiv_id = re.sub(r"v\d+$", "", raw_id)
+
+        title_el   = entry.find(f"{{{_ATOM_NS}}}title")
+        summary_el = entry.find(f"{{{_ATOM_NS}}}summary")
+        creator_el = entry.find(f"{{{_DC_NS}}}creator")
+        pub_el     = entry.find(f"{{{_ATOM_NS}}}published")
+        cat_els    = entry.findall(f"{{{_ATOM_NS}}}category")
+
+        title    = " ".join((title_el.text   or "").split()) if title_el   is not None else ""
+        abstract = " ".join((summary_el.text or "").split()) if summary_el is not None else ""
+
+        # dc:creator is a comma-separated string
+        authors: list[str] = []
+        if creator_el is not None and creator_el.text:
+            authors = [a.strip() for a in creator_el.text.split(",") if a.strip()]
+
+        # published: convert to UTC if timezone-aware
+        published_date: str | None = None
+        if pub_el is not None and pub_el.text:
+            try:
+                from datetime import datetime, timezone as _tz
+                dt = datetime.fromisoformat(pub_el.text.strip())
+                if dt.tzinfo is not None:
+                    dt = dt.astimezone(_tz.utc)
+                published_date = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            except ValueError:
+                _logger.warning("Could not parse published date %r for %s", pub_el.text, arxiv_id)
+
+        categories = [el.get("term", "") for el in cat_els if el.get("term", "")]
+
+        results[arxiv_id] = {
+            "title":          title,
+            "authors":        authors,
+            "abstract":       abstract,
+            "published_date": published_date,
+            "categories":     categories,
+        }
+
+    return results
+
+
 # arXiv category validation and mailing list
 # ---------------------------------------------------------------------------
 
