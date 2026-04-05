@@ -1,32 +1,38 @@
 #!/usr/bin/env python3
 """
-Daily ingest cron script — fetches metadata from the arXiv RSS Atom feed and
-enqueues 'embed' tasks for new papers.
+Daily ingest cron script — fetches metadata via the arXiv OAI-PMH interface
+and enqueues 'embed' tasks for new papers.
 
-For each category in DAILY_INGEST_CATEGORIES (from config.py), fetches the
-arXiv daily mailing via the official Atom feed, writes metadata directly to
-the papers table, and enqueues an 'embed' task for every new paper.  This
-gives full ISO 8601 UTC timestamps on published_date (as opposed to the
-date-only values returned by Semantic Scholar).
+For each category in DAILY_INGEST_CATEGORIES (from config.py), fetches papers
+announced on the given UTC date via OAI-PMH, writes metadata directly to the
+papers table, and enqueues an 'embed' task for every new paper.  This gives
+structured author data (keyname + forenames) and full ISO 8601 UTC timestamps
+on published_date.
 
-Run this once per day after the arXiv mailing is published (typically ~14:00
-US Eastern on weekdays).  The embed daemon will then process the tasks.
+When run without --date, today's UTC date is used.  arXiv stamps OAI-PMH
+records at announcement time (≥ 00:00 UTC), which coincides with the UTC date
+at cron fire time when the cron fires at 20:00 US Eastern (≥ 00:00 UTC).
+
+The legacy RSS Atom feed pathway is available via --rss if OAI-PMH is
+unavailable.
 
 Usage:
-    python3 scripts/cron_daily.py                    # uses DAILY_INGEST_CATEGORIES
+    python3 scripts/cron_daily.py                    # OAI-PMH, today's UTC date
+    python3 scripts/cron_daily.py --date 2026-04-04  # OAI-PMH, explicit date
+    python3 scripts/cron_daily.py --rss              # RSS Atom feed (legacy)
     python3 scripts/cron_daily.py astro-ph.GA cs.LG  # override categories
     python3 scripts/cron_daily.py --db /path/to/app.db
 
-Cron example (runs at 02:00 Eastern Mon–Fri):
+Cron example (runs at 21:00 Eastern Sunday–Thursday, after the mailing goes out):
     CRON_TZ=America/New_York
-    0 2 * * 1-5  cd /path/to/arxiv_recommender && python3 scripts/cron_daily.py
+    0 21 * * SUN,MON,TUE,WED,THU  cd /path/to/arxiv_recommender && python3 scripts/cron_daily.py
 """
 
 import argparse
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _project_root not in sys.path:
@@ -50,14 +56,13 @@ def _already_known(con, arxiv_id: str) -> bool:
     ).fetchone() is not None
 
 
-def run(categories: list[str], db_path: str, date: str | None = None) -> int:
+def run(categories: list[str], db_path: str, date: str | None = None, use_rss: bool = False) -> int:
     """
     Fetch metadata for each category and enqueue embed tasks for new papers.
 
-    When *date* is None (default), fetches today's mailing via the arXiv RSS
-    Atom feed.  When *date* is a ``YYYY-MM-DD`` string, fetches papers first
-    submitted on that date via the OAI-PMH interface (useful for backfilling
-    missed days, e.g. after a weekend or holiday).
+    When *use_rss* is False (default), fetches via OAI-PMH for *date*
+    (a ``YYYY-MM-DD`` UTC date string).  When *use_rss* is True, fetches
+    today's mailing via the RSS Atom feed instead (ignores *date*).
 
     Returns the total number of newly enqueued embed tasks.
     """
@@ -69,19 +74,19 @@ def run(categories: list[str], db_path: str, date: str | None = None) -> int:
 
     try:
         for category in categories:
-            if date:
+            if use_rss:
+                log.info("Fetching RSS Atom feed for category: %s", category)
+                try:
+                    metadata = fetch_daily_mailing_metadata(category)
+                except RuntimeError as e:
+                    log.error("  Failed to fetch Atom feed for %s: %s", category, e)
+                    continue
+            else:
                 log.info("Fetching OAI-PMH metadata for %s on %s", category, date)
                 try:
                     metadata = fetch_oaipmh_metadata(date, category)
                 except RuntimeError as e:
                     log.error("  Failed OAI-PMH fetch for %s: %s", category, e)
-                    continue
-            else:
-                log.info("Fetching daily mailing for category: %s", category)
-                try:
-                    metadata = fetch_daily_mailing_metadata(category)
-                except RuntimeError as e:
-                    log.error("  Failed to fetch Atom feed for %s: %s", category, e)
                     continue
 
             log.info("  Feed returned %d new paper(s).", len(metadata))
@@ -133,10 +138,15 @@ def main() -> int:
         metavar="YYYY-MM-DD",
         default=None,
         help=(
-            "Fetch papers submitted on this specific date via OAI-PMH instead "
-            "of the RSS Atom feed.  Useful for backfilling missed days "
-            "(e.g. after a weekend or holiday)."
+            "OAI-PMH UTC date to fetch (default: today's UTC date). "
+            "Useful for backfilling missed days (e.g. after a weekend or holiday). "
+            "Ignored when --rss is set."
         ),
+    )
+    parser.add_argument(
+        "--rss",
+        action="store_true",
+        help="Use the RSS Atom feed instead of OAI-PMH (legacy fallback).",
     )
     parser.add_argument(
         "--db", default=APP_DB_PATH,
@@ -145,15 +155,19 @@ def main() -> int:
     args = parser.parse_args()
 
     date: str | None = None
-    if args.date:
-        try:
-            datetime.strptime(args.date, "%Y-%m-%d")
-        except ValueError:
-            parser.error(f"--date must be in YYYY-MM-DD format, got: {args.date!r}")
-        date = args.date
+    if not args.rss:
+        if args.date:
+            try:
+                datetime.strptime(args.date, "%Y-%m-%d")
+            except ValueError:
+                parser.error(f"--date must be in YYYY-MM-DD format, got: {args.date!r}")
+            date = args.date
+        else:
+            date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        log.info("OAI-PMH query date: %s", date)
 
     categories = args.categories if args.categories else DAILY_INGEST_CATEGORIES
-    run(categories, args.db, date=date)
+    run(categories, args.db, date=date, use_rss=args.rss)
     return 0
 
 
