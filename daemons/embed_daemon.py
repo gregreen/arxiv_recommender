@@ -41,7 +41,7 @@ from arxiv_lib.config import (
     EMBEDDING_CACHE_DB,
     EMBED_INGEST_POLL_INTERVAL,
 )
-from arxiv_lib.ingest import fetch_arxiv_embedding, load_tokens
+from arxiv_lib.ingest import fetch_arxiv_embedding
 
 logging.basicConfig(
     level=logging.INFO,
@@ -76,7 +76,7 @@ def _paper_already_ingested(app_con: sqlite3.Connection, arxiv_id: str) -> bool:
 # Core task processor
 # ---------------------------------------------------------------------------
 
-def process_one_task(app_con: sqlite3.Connection, tokens: dict) -> bool:
+def process_one_task(app_con: sqlite3.Connection) -> bool:
     """
     Claim and process one 'embed' task.
 
@@ -102,7 +102,7 @@ def process_one_task(app_con: sqlite3.Connection, tokens: dict) -> bool:
             return True
 
         # Summarise (LLM) → embed → save to embeddings_cache.db
-        fetch_arxiv_embedding(arxiv_id, tokens)
+        fetch_arxiv_embedding(arxiv_id)
 
         complete_task(app_con, task_id)
         app_con.commit()
@@ -136,12 +136,11 @@ def main() -> int:
 
     log.info("Starting embed daemon (db=%s)", args.db)
     init_app_db(args.db)
-    tokens = load_tokens()
 
     app_con = get_connection(args.db)
     try:
         while True:
-            found = process_one_task(app_con, tokens)
+            found = process_one_task(app_con)
             if args.once:
                 if not found:
                     log.info("Queue empty — nothing to do.")

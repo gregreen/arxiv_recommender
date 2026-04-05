@@ -5,6 +5,7 @@ All path constants, model names, and algorithm hyperparameters live here.
 Import this module instead of hardcoding values anywhere else.
 """
 
+import json
 import os
 import numpy as np
 
@@ -21,8 +22,11 @@ SOURCE_CACHE_DIR     = os.path.join(BASE_DIR, "arxiv_source_cache")
 METADATA_CACHE_DIR   = os.path.join(BASE_DIR, "arxiv_metadata_cache")
 SUMMARY_CACHE_DIR    = os.path.join(BASE_DIR, "arxiv_summary_cache")
 
-# Tokens JSON file (not committed to source control)
-TOKENS_FILE = os.path.join(BASE_DIR, "tokens.json")
+# Tokens JSON file (not committed to source control; kept for reference)
+TOKENS_FILE    = os.path.join(BASE_DIR, "tokens.json")
+# API keys and LLM configuration (not committed to source control)
+API_KEYS_FILE  = os.path.join(BASE_DIR, "api_keys.json")
+LLM_CONFIG_FILE = os.path.join(BASE_DIR, "llm_config.json")
 
 # ---------------------------------------------------------------------------
 # Network
@@ -97,21 +101,33 @@ EMBED_INGEST_POLL_INTERVAL = 0.1 # seconds
 # Maximum number of 'fetch_meta' tasks claimed and processed in one S2 batch call.
 INGEST_META_BATCH_SIZE = 256
 
+
+def _load_json_file(path: str, label: str) -> dict:
+    """Load a JSON file and return its contents as a dict.
+
+    Prints a warning and returns {} if the file is missing or malformed.
+    """
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"Warning: {label} not found at {path!r}. API calls will fail.")
+        return {}
+    except json.JSONDecodeError as e:
+        print(f"Warning: {label} at {path!r} is malformed: {e}")
+        return {}
+
+
+# API keys (from api_keys.json) and LLM configuration (from llm_config.json)
+# are loaded once at import time so all modules share the same objects.
+API_KEYS:   dict[str, str]  = _load_json_file(API_KEYS_FILE,   "api_keys.json")
+LLM_CONFIG: dict[str, dict] = _load_json_file(LLM_CONFIG_FILE, "llm_config.json")
+
 # ---------------------------------------------------------------------------
 # LLM / embedding model identifiers
 # ---------------------------------------------------------------------------
-# Context limit note (Novita + Qwen3-Next-80B-A3B-Thinking):
-#   Input tokens > ~110K causes a 400 Bad Request.
-#   Empirically: 109,929 tokens OK, 111,476 tokens FAIL.
-#   SUMMARY_MAX_TOKENS = 96 * 1024 leaves ~3K headroom for metadata
-#   and ~16K for the model's output.
-SUMMARY_PROVIDER   = "novita"
-SUMMARY_MODEL      = "Qwen/Qwen3-Next-80B-A3B-Thinking"
-SUMMARY_MAX_TOKENS = 96 * 1024
-
-EMBEDDING_PROVIDER   = "scaleway"
-EMBEDDING_MODEL      = "Qwen/Qwen3-Embedding-8B"
-EMBEDDING_MAX_TOKENS = 24 * 1024
+# Model identity and provider settings live in llm_config.json.
+# EMBEDDING_DIM is an algorithm parameter and stays here.
 
 # ---------------------------------------------------------------------------
 # arXiv categories

@@ -25,7 +25,7 @@ from tenacity import (
     before_sleep_log,
 )
 
-from huggingface_hub import InferenceClient
+from openai import OpenAI
 from arxiv_to_prompt import process_latex_source, count_tokens
 
 import numpy as np
@@ -40,12 +40,8 @@ from arxiv_lib.config import (
     TOKENS_FILE,
     USER_AGENT,
     ARXIV_CATEGORIES,
-    SUMMARY_PROVIDER,
-    SUMMARY_MODEL,
-    SUMMARY_MAX_TOKENS,
-    EMBEDDING_PROVIDER,
-    EMBEDDING_MODEL,
-    EMBEDDING_MAX_TOKENS,
+    API_KEYS,
+    LLM_CONFIG,
 )
 
 
@@ -801,11 +797,13 @@ def compress_latex_whitespace(latex: str) -> str:
     return "\n".join(lines)
 
 
-def report_compression_stats(max_tokens: int = EMBEDDING_MAX_TOKENS) -> None:
+def report_compression_stats(max_tokens: int | None = None) -> None:
     """
     Runs compress_latex_whitespace on every cached .tex file in SOURCE_CACHE_DIR
     and prints per-file and aggregate compression statistics.
     """
+    if max_tokens is None:
+        max_tokens = LLM_CONFIG.get("embedding", {}).get("max_input_tokens", 24576)
     tex_files = sorted(glob.glob(os.path.join(SOURCE_CACHE_DIR, "*.tex")))
     if not tex_files:
         print("No cached .tex files found.")
@@ -863,10 +861,8 @@ def report_compression_stats(max_tokens: int = EMBEDDING_MAX_TOKENS) -> None:
 
 def summarize_arxiv_paper(
     arxiv_id: str,
-    hf_token: str,
-    provider: str = SUMMARY_PROVIDER,
-    model: str = SUMMARY_MODEL,
-    max_tokens: int = SUMMARY_MAX_TOKENS,
+    model: str | None = None,
+    max_tokens: int | None = None,
 ) -> str:
     """
     Produces a structured summary of an arXiv paper in a single LLM call.
@@ -878,25 +874,20 @@ def summarize_arxiv_paper(
 
     Results are cached in SUMMARY_CACHE_DIR.
 
-    Parameters
-    ----------
-    arxiv_id : str
-    hf_token : str
-        HuggingFace API token.
-    provider : str
-        InferenceClient provider (default from config: SUMMARY_PROVIDER).
-    model : str
-        Chat-completion model (default from config: SUMMARY_MODEL).
-    max_tokens : int
-        LaTeX token budget before truncation (default from config: SUMMARY_MAX_TOKENS).
-        Context limit note: Novita + Qwen3-Next-80B-A3B-Thinking fails above ~110K tokens.
-        96*1024 leaves ~3K headroom for metadata and ~16K for output.
+    Model, base URL, and token limits are read from LLM_CONFIG["summary"]
+    (llm_config.json).  *model* and *max_tokens* override the config values
+    when provided.
 
     Returns
     -------
     str
         Structured summary, also persisted to cache.
     """
+    cfg        = LLM_CONFIG.get("summary", {})
+    _model     = model or cfg.get("model", "")
+    _max_tok   = max_tokens or cfg.get("max_input_tokens", 98304)
+    _api_key   = API_KEYS.get(cfg.get("api_key_name", "summary_api_key"), "")
+    _base_url  = cfg.get("base_url", "https://router.huggingface.co/v1")
     os.makedirs(SUMMARY_CACHE_DIR, exist_ok=True)
     arxiv_id_clean = sanitize_old_style_arxiv_id(arxiv_id)
     cache_file = os.path.join(SUMMARY_CACHE_DIR, f"{arxiv_id_clean}.txt")
@@ -919,11 +910,11 @@ def summarize_arxiv_paper(
 
     n_tok = count_tokens(raw_latex)
     print(f'Estimated number of tokens: {n_tok}')
-    if n_tok > max_tokens:
+    if n_tok > _max_tok:
         chars_per_token = len(raw_latex) / max(n_tok, 1)
-        chars_to_keep   = int(max_tokens * chars_per_token)
+        chars_to_keep   = int(_max_tok * chars_per_token)
         raw_latex = raw_latex[:chars_to_keep] + "\n\n[... source truncated ...]"
-        print(f"  LaTeX source truncated from ~{n_tok} to ~{max_tokens} tokens.")
+        print(f"  LaTeX source truncated from ~{n_tok} to ~{_max_tok} tokens.")
 
     # --- Build prompt -----------------------------------------------------
     # TODO: make field-agnostic (currently says "astrophysics researcher")
@@ -955,15 +946,15 @@ def summarize_arxiv_paper(
     )
 
     # --- Call the LLM -----------------------------------------------------
-    client = InferenceClient(provider=provider, api_key=hf_token)
-    print(f"  Requesting summary for {arxiv_id} via {provider} / {model} ...")
+    client = OpenAI(base_url=_base_url, api_key=_api_key)
+    print(f"  Requesting summary for {arxiv_id} via {_base_url} / {_model} ...")
     try:
-        response = client.chat_completion(
+        response = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user",   "content": user_message},
             ],
-            model=model,
+            model=_model,
             max_tokens=16384,
         )
         raw_response = response.choices[0].message.content.strip()
@@ -979,16 +970,18 @@ def summarize_arxiv_paper(
             print(user_message)
         raise RuntimeError(f"Summary API call failed for {arxiv_id}: {e}")
 
-    # Strip chain-of-thought from thinking models (Qwen3, DeepSeek-R1, etc.)
-    # Known closing markers — add more here as needed.
-    COT_END_MARKERS = ["</think>"]
+    # Strip chain-of-thought from thinking models.
+    # cot_closing_tags lists possible closing markers (e.g. </think>, </reasoning>).
+    # We find the last occurrence of any marker and discard everything before it,
+    # which is robust to models that omit the opening tag entirely.
+    cot_tags = cfg.get("cot_closing_tags", [])
     summary = raw_response
-    for marker in COT_END_MARKERS:
-        idx = summary.rfind(marker)
-        if idx != -1:
-            summary = summary[idx + len(marker):]
-            break
-    summary = summary.strip()
+    if cot_tags:
+        best = max(
+            (summary.rfind(tag) + len(tag) for tag in cot_tags if summary.rfind(tag) != -1),
+            default=0,
+        )
+        summary = summary[best:].strip()
 
     with open(cache_file, "w", encoding="utf-8") as f:
         f.write(summary)
@@ -1002,12 +995,8 @@ def summarize_arxiv_paper(
 
 def gen_arxiv_embedding(
     arxiv_id: str,
-    tokens: dict[str, str],
-    summary_provider: str = SUMMARY_PROVIDER,
-    summary_model: str = SUMMARY_MODEL,
-    embedding_provider: str = EMBEDDING_PROVIDER,
-    embedding_model: str = EMBEDDING_MODEL,
-    max_tokens: int = EMBEDDING_MAX_TOKENS,
+    model: str | None = None,
+    max_tokens: int | None = None,
 ) -> np.ndarray:
     """
     Generates an embedding vector for a given arXiv paper.
@@ -1018,45 +1007,38 @@ def gen_arxiv_embedding(
     The full 4096-dim vector is returned; truncate to EMBEDDING_DIM at
     scoring time (do not store truncated vectors).
 
-    # TODO: make embedding prompt field-agnostic (currently says "astrophysics paper")
+    Model, base URL, and token limits are read from LLM_CONFIG["embedding"]
+    (llm_config.json).  *model* and *max_tokens* override the config values
+    when provided.
 
     Parameters
     ----------
     arxiv_id : str
         arXiv ID of the paper to embed (e.g. "2309.06676").
-    tokens : dict[str, str]
-        Dict of API tokens, must include 'huggingface' and optionally 'semantic_scholar'.
-    summary_provider : str
-        InferenceClient provider for the summary step (default from config: SUMMARY_PROVIDER).
-    summary_model : str
-        Chat-completion model for the summary step (default from config: SUMMARY_MODEL).
-    embedding_provider : str
-        InferenceClient provider for the embedding step (default from config: EMBEDDING_PROVIDER).
-    embedding_model : str
-        Model for the embedding step (default from config: EMBEDDING_MODEL).
-    max_tokens : int
-        Maximum number of tokens for the combined metadata + summary input to the embedding model.
-         (default from config: EMBEDDING_MAX_TOKENS). Context limit note: Qwen3-Next-80B-A3B-Thinking
-         fails above ~110K tokens; leaving headroom for metadata and output, we set the default to 96K tokens.
-    
+    model : str | None
+        Override the embedding model from llm_config.json.
+    max_tokens : int | None
+        Override max_input_tokens from llm_config.json.
+
     Returns
     -------
     np.ndarray
         The embedding vector for the given arXiv ID.
     """
+    cfg       = LLM_CONFIG.get("embedding", {})
+    _model    = model or cfg.get("model", "")
+    _max_tok  = max_tokens or cfg.get("max_input_tokens", 24576)
+    _api_key  = API_KEYS.get(cfg.get("api_key_name", "embed_api_key"), "")
+    _base_url = cfg.get("base_url", "https://router.huggingface.co/v1")
     print("")
     print(f"Fetching metadata for {arxiv_id}...")
     metadata = get_arxiv_metadata(
         [arxiv_id],
-        s2_token=tokens.get('semantic_scholar'),
+        s2_token=API_KEYS.get('semantic_scholar'),
     )[arxiv_id]
 
     print(f"Fetching structured summary for {arxiv_id}...")
-    summary = summarize_arxiv_paper(
-        arxiv_id, tokens['huggingface'],
-        provider=summary_provider,
-        model=summary_model,
-    )
+    summary = summarize_arxiv_paper(arxiv_id)
 
     # TODO (later): make field-agnostic (no mention of astrophysics)
     prompt = (
@@ -1077,27 +1059,27 @@ def gen_arxiv_embedding(
     full_input = prompt + summary
 
     n_tokens = count_tokens(full_input)
-    if n_tokens > max_tokens:
+    if n_tokens > _max_tok:
         chars_per_token = len(full_input) / n_tokens
-        chars_to_keep   = int(max_tokens * chars_per_token)
-        print(f"Truncating from ~{n_tokens} to ~{max_tokens} tokens.")
+        chars_to_keep   = int(_max_tok * chars_per_token)
+        print(f"Truncating from ~{n_tokens} to ~{_max_tok} tokens.")
         full_input = full_input[:chars_to_keep] + "\n\n[Truncated due to token limit]"
 
     print("\nLLM input:")
     print("\n".join(full_input.splitlines()[:20]) + "\n...\n")
     print(f"Total input length: {len(full_input)} characters.")
 
-    print("Requesting embedding via Hugging Face InferenceClient...")
-    client = InferenceClient(provider=embedding_provider, api_key=tokens['huggingface'])
+    print(f"Requesting embedding via {_base_url} / {_model} ...")
+    client = OpenAI(base_url=_base_url, api_key=_api_key)
     try:
-        result = client.feature_extraction(full_input, model=embedding_model)
+        result = client.embeddings.create(input=full_input, model=_model)
     except Exception as e:
         raise RuntimeError(f"API Error during feature extraction: {e}")
 
-    return np.asarray(result).flatten()
+    return np.asarray(result.data[0].embedding, dtype=np.float32)
 
 
-def fetch_arxiv_embedding(arxiv_id: str, tokens: dict[str, str]) -> np.ndarray:
+def fetch_arxiv_embedding(arxiv_id: str) -> np.ndarray:
     """
     Returns the embedding vector for a given arXiv ID, using the local cache
     when available and generating a new one otherwise.
@@ -1106,9 +1088,7 @@ def fetch_arxiv_embedding(arxiv_id: str, tokens: dict[str, str]) -> np.ndarray:
     ----------
     arxiv_id : str
         arXiv ID of the paper to embed (e.g. "2309.06676").
-    tokens : dict[str, str]
-        Dict of API tokens, must include 'huggingface' and optionally 'semantic_scholar'.
-    
+
     Returns
     -------
     np.ndarray
@@ -1122,7 +1102,7 @@ def fetch_arxiv_embedding(arxiv_id: str, tokens: dict[str, str]) -> np.ndarray:
         if row is not None:
             return np.frombuffer(row[0], dtype=np.float32)
 
-        vector = gen_arxiv_embedding(arxiv_id, tokens)
+        vector = gen_arxiv_embedding(arxiv_id)
         con.execute(
             "INSERT OR REPLACE INTO embeddings VALUES (?, ?)",
             (arxiv_id, vector.astype(np.float32).tobytes()),
@@ -1132,7 +1112,6 @@ def fetch_arxiv_embedding(arxiv_id: str, tokens: dict[str, str]) -> np.ndarray:
 
 def embed_arxiv_ids(
     arxiv_ids: list[str],
-    tokens: dict[str, str],
     **kwargs,
 ) -> dict[str, np.ndarray]:
     """
@@ -1145,10 +1124,7 @@ def embed_arxiv_ids(
     ----------
     arxiv_ids : list[str]
         List of arXiv IDs to embed.
-    tokens : dict[str, str]
-        Dict of API tokens, must include 'huggingface' and optionally 'semantic_scholar'.
-    **kwargs : passed to gen_arxiv_embedding for each ID (e.g. summary/embedding
-         provider/model, max_tokens). See gen_arxiv_embedding for details.
+    **kwargs : passed to gen_arxiv_embedding for each ID (e.g. model, max_tokens).
 
     Returns
     -------
@@ -1156,17 +1132,17 @@ def embed_arxiv_ids(
         Maps each arXiv ID to its embedding vector. IDs that could not be embedded
         due to errors are omitted.
     """
-    get_arxiv_metadata(arxiv_ids, s2_token=tokens.get('semantic_scholar'))
+    get_arxiv_metadata(arxiv_ids, s2_token=API_KEYS.get('semantic_scholar'))
 
     from tqdm.auto import tqdm
     vectors = {}
     for aid in tqdm(arxiv_ids):
         print(f"Processing {aid}...")
-        vectors[aid] = fetch_arxiv_embedding(aid, tokens, **kwargs)
+        vectors[aid] = fetch_arxiv_embedding(aid, **kwargs)
     return vectors
 
 
-def embed_latest_mailing(category: str, tokens: dict[str, str]) -> dict[str, np.ndarray]:
+def embed_latest_mailing(category: str) -> dict[str, np.ndarray]:
     """
     Fetch and embed all papers from the most recent arXiv mailing for a category.
 
@@ -1176,9 +1152,7 @@ def embed_latest_mailing(category: str, tokens: dict[str, str]) -> dict[str, np.
     ----------
     category : str
         arXiv category (e.g. "astro-ph.GA"). Must be in the configured ARXIV_CATEGORIES set.
-    tokens : dict[str, str]
-        Dict of API tokens, must include 'huggingface' and optionally 'semantic_scholar'.
-    
+
     Returns
     -------
     dict[str, np.ndarray]
@@ -1187,24 +1161,23 @@ def embed_latest_mailing(category: str, tokens: dict[str, str]) -> dict[str, np.
     raise_on_arxiv_category(category)
     ids = fetch_latest_mailing_ids(category)
     print(f"Found {len(ids)} papers in the latest {category} mailing.")
-    return embed_arxiv_ids(ids, tokens)
+    return embed_arxiv_ids(ids)
 
 
 # ---------------------------------------------------------------------------
-# Token loading
+# Token loading (deprecated — API keys now live in API_KEYS from config.py)
 # ---------------------------------------------------------------------------
+
+import warnings
 
 def load_tokens() -> dict[str, str]:
-    """Load API tokens from TOKENS_FILE and return as a dict."""
-    try:
-        with open(TOKENS_FILE, "r") as f:
-            tokens = json.load(f)
-    except FileNotFoundError:
-        print(f"Warning: {TOKENS_FILE} not found. API calls will fail without valid tokens.")
-        tokens = {}
+    """Deprecated. Returns API_KEYS loaded from api_keys.json.
 
-    for key in ("huggingface", "semantic_scholar"):
-        if key not in tokens:
-            print(f"Warning: '{key}' token not found in {TOKENS_FILE}.")
-
-    return tokens
+    Use ``from arxiv_lib.config import API_KEYS`` directly instead.
+    """
+    warnings.warn(
+        "load_tokens() is deprecated. Import API_KEYS from arxiv_lib.config instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return API_KEYS
