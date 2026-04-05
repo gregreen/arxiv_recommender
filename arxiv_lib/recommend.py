@@ -43,6 +43,9 @@ from arxiv_lib.config import (
     BACKGROUND_NEGATIVE_MIN_COUNT,
     EMBEDDING_CACHE_DB,
     EMBEDDING_DIM,
+    MAX_DISLIKED_PAPERS_TO_USE,
+    MAX_LIKED_PAPERS_TO_USE,
+    MAX_MODEL_AGE_DAYS,
     RECOMMEND_MIN_LIKED,
     RECOMMEND_TIME_WINDOWS,
 )
@@ -83,26 +86,42 @@ def _load_vectors(arxiv_ids: list[str]) -> dict[str, np.ndarray]:
     return vectors
 
 
-def _get_background_negative_ids(con: sqlite3.Connection) -> list[str]:
+def _get_background_negative_ids(
+    con: sqlite3.Connection,
+    exclude_ids: set[str],
+) -> list[str]:
     """
     Return up to BACKGROUND_NEGATIVE_COUNT arXiv IDs to use as background
     negative examples when training a scoring model.
 
-    Selects the oldest embedded papers by published_date (deterministic and
-    stable — newly arrived papers are always newer, so the set doesn't change
-    as the corpus grows).  Only returns IDs that have both metadata and an
-    embedding.
+    Selects a random sample of papers (excluding any the user has explicitly
+    liked or disliked) so that the negative set evolves with the corpus.
+    Only returns IDs that have both metadata and an embedding.
     """
-    rows = con.execute(
-        """
-        SELECT p.arxiv_id
-          FROM papers p
-         WHERE p.published_date IS NOT NULL
-         ORDER BY p.published_date ASC
-         LIMIT ?
-        """,
-        (BACKGROUND_NEGATIVE_COUNT,),
-    ).fetchall()
+    if exclude_ids:
+        placeholders = ",".join("?" * len(exclude_ids))
+        rows = con.execute(
+            f"""
+            SELECT p.arxiv_id
+              FROM papers p
+             WHERE p.published_date IS NOT NULL
+               AND p.arxiv_id NOT IN ({placeholders})
+             ORDER BY RANDOM()
+             LIMIT ?
+            """,
+            list(exclude_ids) + [BACKGROUND_NEGATIVE_COUNT],
+        ).fetchall()
+    else:
+        rows = con.execute(
+            """
+            SELECT p.arxiv_id
+              FROM papers p
+             WHERE p.published_date IS NOT NULL
+             ORDER BY RANDOM()
+             LIMIT ?
+            """,
+            (BACKGROUND_NEGATIVE_COUNT,),
+        ).fetchall()
     # Filter to only IDs that have an embedding (cross-DB lookup done in Python).
     candidate_ids = [r[0] for r in rows]
     if not candidate_ids:
@@ -233,33 +252,34 @@ def get_or_train_model(
     NotEnoughDataError
         If the user has fewer than RECOMMEND_MIN_LIKED liked papers with embeddings.
     """
-    # Load liked and disliked paper IDs
+    # Load liked and disliked paper IDs, most-recently-added first, capped
     rows = con.execute(
-        "SELECT arxiv_id, liked FROM user_papers WHERE user_id = ? AND liked != 0",
+        "SELECT arxiv_id, liked FROM user_papers WHERE user_id = ? AND liked != 0 ORDER BY added_at DESC",
         (user_id,),
     ).fetchall()
-    liked_ids    = [r[0] for r in rows if r[1] == 1]
-    disliked_ids = [r[0] for r in rows if r[1] == -1]
+    liked_ids    = [r[0] for r in rows if r[1] ==  1][:MAX_LIKED_PAPERS_TO_USE]
+    disliked_ids = [r[0] for r in rows if r[1] == -1][:MAX_DISLIKED_PAPERS_TO_USE]
 
     model_hash = compute_model_hash(liked_ids, disliked_ids)
 
     # Check for a cached model with a matching hash
     cached = con.execute(
-        "SELECT model_blob FROM user_models WHERE user_id = ? AND model_hash = ?",
+        "SELECT model_blob, trained_at FROM user_models WHERE user_id = ? AND model_hash = ?",
         (user_id, model_hash),
     ).fetchone()
     if cached is not None:
-        model = ScoringModel.deserialize(json.loads(cached[0]))
-        return model, model_hash
+        # Force retrain if the model is too old (background negatives may have drifted)
+        trained_at = datetime.fromisoformat(cached[1].rstrip("Z")).replace(tzinfo=timezone.utc)
+        age_days = (datetime.now(tz=timezone.utc) - trained_at).days
+        if age_days <= MAX_MODEL_AGE_DAYS:
+            model = ScoringModel.deserialize(json.loads(cached[0]))
+            return model, model_hash
 
     # Need to retrain — load vectors
     liked_vectors    = _load_vectors(liked_ids)
     disliked_vectors = _load_vectors(disliked_ids)
-    background_ids   = _get_background_negative_ids(con)
-
-    # Remove liked papers from background to avoid contaminating the negative set
-    liked_set = set(liked_ids)
-    background_ids = [aid for aid in background_ids if aid not in liked_set]
+    exclude_ids      = set(liked_ids) | set(disliked_ids)
+    background_ids   = _get_background_negative_ids(con, exclude_ids)
     background_vectors = _load_vectors(background_ids)
 
     # Validate training set

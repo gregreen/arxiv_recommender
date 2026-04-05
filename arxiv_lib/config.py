@@ -52,13 +52,22 @@ RBF_GAMMAS = np.logspace(-6, 6, num=6, base=2)
 RBF_PCA_COMPONENTS = 8
 
 # Background negative papers used for training all users' scoring models.
-# Selecting the oldest N embedded papers is deterministic and stable — the
-# set does not change as new papers arrive (they are always newer), so it
-# does not spuriously invalidate cached models.
-# BACKGROUND_NEGATIVE_COUNT: how many to use.
+# A random sample of up to BACKGROUND_NEGATIVE_COUNT papers (excluding any
+# the user has explicitly liked or disliked) is drawn at each retrain so the
+# negative set evolves with the corpus.
 # BACKGROUND_NEGATIVE_MIN_COUNT: reject training if fewer than this are available.
 BACKGROUND_NEGATIVE_COUNT = 512
 BACKGROUND_NEGATIVE_MIN_COUNT = 64
+
+# Cap on how many of the user's most-recently-added liked/disliked papers are
+# used for training.  Prevents training time growing unboundedly as the library
+# grows and keeps the model focused on recent interests.
+MAX_LIKED_PAPERS_TO_USE    = 256
+MAX_DISLIKED_PAPERS_TO_USE = 128
+
+# Models older than this are retrained unconditionally (even if the hash
+# matches) so that drifting background negatives are refreshed.
+MAX_MODEL_AGE_DAYS = 90
 
 # Minimum number of liked papers required before attempting to train a model.
 RECOMMEND_MIN_LIKED = 4
@@ -66,7 +75,7 @@ RECOMMEND_MIN_LIKED = 4
 # Maximum number of papers returned by the onboarding browse (shown to new users
 # who have not yet liked enough papers to generate scored recommendations).
 # Returned in random order so the user sees a varied sample each visit.
-ONBOARDING_BROWSE_LIMIT = 150
+ONBOARDING_BROWSE_LIMIT = 256
 
 # Time windows exposed by the recommendations endpoint.
 RECOMMEND_TIME_WINDOWS = ("day", "week", "month")
