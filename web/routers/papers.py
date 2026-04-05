@@ -16,7 +16,7 @@ from web.dependencies import get_current_user, get_db
 router = APIRouter(prefix="/papers", tags=["papers"])
 
 
-@router.get("/{arxiv_id}")
+@router.get("/{arxiv_id:path}")
 def get_paper(
     arxiv_id: str,
     db: sqlite3.Connection = Depends(get_db),
@@ -31,7 +31,8 @@ def get_paper(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found.")
 
-    summary_path = os.path.join(SUMMARY_CACHE_DIR, f"{arxiv_id}.txt")
+    summary_cache_id = arxiv_id.replace("/", "_")
+    summary_path = os.path.join(SUMMARY_CACHE_DIR, f"{summary_cache_id}.txt")
     summary = None
     if os.path.exists(summary_path):
         with open(summary_path) as f:

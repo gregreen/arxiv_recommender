@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getPaper } from "../api/papers";
 import { updatePaper } from "../api/user";
+import { ApiError } from "../api/client";
 import type { Paper } from "../api/types";
 import { scoreBar } from "./scoreColor";
 import MathText from "./MathText";
@@ -18,17 +19,23 @@ export default function PaperDetail({ arxivId, initialLiked, score, onLikedChang
   const [liked, setLiked] = useState<number | null>(initialLiked ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!arxivId) { setPaper(null); return; }
     setLoading(true);
     setError(null);
+    setNotFound(false);
     setLiked(initialLiked ?? null);
     getPaper(arxivId)
       .then(setPaper)
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "Failed to load paper");
+        if (err instanceof ApiError && err.status === 404) {
+          setNotFound(true);
+        } else {
+          setError(err instanceof Error ? err.message : "Failed to load paper");
+        }
       })
       .finally(() => setLoading(false));
   }, [arxivId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -63,6 +70,10 @@ export default function PaperDetail({ arxivId, initialLiked, score, onLikedChang
 
   if (loading) {
     return <div className="p-6 text-gray-500 text-sm">Loading…</div>;
+  }
+
+  if (notFound) {
+    return <div className="p-6 text-gray-500 text-sm">{arxivId} not yet processed — please be patient.</div>;
   }
 
   if (error) {

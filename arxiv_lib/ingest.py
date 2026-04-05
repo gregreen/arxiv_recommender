@@ -12,6 +12,7 @@ import re
 import json
 import sqlite3
 import logging
+import urllib.request
 
 import requests
 import xml.etree.ElementTree as ET
@@ -205,7 +206,7 @@ def get_arxiv_metadata(arxiv_ids: list[str],
         print(f"Fetching metadata for {len(batch_ids)} papers.")
         try:
             fetched = fetch_arxiv_metadata_s2(batch_ids, s2_api_key=s2_token)
-        except RuntimeError as e:
+        except Exception as e:
             print(f"  S2 fetch failed ({e}); falling back to arXiv Atom API.")
             fetched = {}
 
@@ -380,6 +381,8 @@ def fetch_arxiv_metadata_s2(
     _logger = logging.getLogger(__name__)
 
     def _is_retryable(exc: BaseException) -> bool:
+        if isinstance(exc, requests.exceptions.ConnectionError):
+            return True
         return (
             isinstance(exc, requests.HTTPError)
             and exc.response.status_code in (429, 500, 502, 503, 504)
@@ -469,22 +472,39 @@ def fetch_latest_mailing_ids(category: str) -> list[str]:
 # LaTeX source cache
 # ---------------------------------------------------------------------------
 
+def sanitize_old_style_arxiv_id(arxiv_id: str) -> str:
+    """Convert old-style arXiv IDs with slashes to the underscore format used in filenames."""
+    return arxiv_id.replace(r'/', '_')
+
+
+def load_cached_arxiv_source(arxiv_id: str) -> str | None:
+    """Returns the cached LaTeX source for the given arXiv ID, or None if not cached."""
+    # Old-style arXiv IDs with slashes are stored with slashes replaced by underscores
+    arxiv_id_clean = sanitize_old_style_arxiv_id(arxiv_id)
+    cache_fname = os.path.join(SOURCE_CACHE_DIR, f"{arxiv_id_clean}.tex")
+    if os.path.exists(cache_fname):
+        with open(cache_fname, "r", encoding="utf-8") as f:
+            return f.read()
+    return None
+
 def get_arxiv_source(arxiv_id: str) -> str:
     """
     Returns the processed LaTeX source for a given arXiv ID, fetching and
     caching it if not already present.
     """
-    cache_file = os.path.join(SOURCE_CACHE_DIR, f"{arxiv_id}.tex")
-    if os.path.exists(cache_file):
-        with open(cache_file, "r", encoding="utf-8") as f:
-            return f.read()
+    latex = load_cached_arxiv_source(arxiv_id)
+    if latex is not None:
+        return latex
 
     latex = process_latex_source(arxiv_id, keep_comments=False)
     if latex is None:
         latex = "No LaTeX source available for this paper."
         print(f"Warning: Unable to fetch/read {arxiv_id}!")
 
-    with open(cache_file, "w", encoding="utf-8") as f:
+    # arXiv-to-prompt renames old-style IDs like hep-th/9901001 to hep-th_9901001
+    arxiv_id_clean = sanitize_old_style_arxiv_id(arxiv_id)
+    cache_fname = os.path.join(SOURCE_CACHE_DIR, f"{arxiv_id_clean}.tex")
+    with open(cache_fname, "w", encoding="utf-8") as f:
         f.write(latex)
 
     return latex
@@ -600,7 +620,8 @@ def summarize_arxiv_paper(
         Structured summary, also persisted to cache.
     """
     os.makedirs(SUMMARY_CACHE_DIR, exist_ok=True)
-    cache_file = os.path.join(SUMMARY_CACHE_DIR, f"{arxiv_id}.txt")
+    arxiv_id_clean = sanitize_old_style_arxiv_id(arxiv_id)
+    cache_file = os.path.join(SUMMARY_CACHE_DIR, f"{arxiv_id_clean}.txt")
     if os.path.exists(cache_file):
         with open(cache_file, "r", encoding="utf-8") as f:
             return f.read()
