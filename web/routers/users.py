@@ -165,7 +165,7 @@ class PatchPaperRequest(BaseModel):
     liked: Literal[-1, 0, 1]
 
 
-@router.patch("/papers/{arxiv_id}")
+@router.patch("/papers/{arxiv_id:path}")
 def update_paper(
     arxiv_id: str,
     body: PatchPaperRequest,
@@ -186,7 +186,7 @@ def update_paper(
     return {"arxiv_id": arxiv_id, "liked": body.liked}
 
 
-@router.delete("/papers/{arxiv_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/papers/{arxiv_id:path}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_paper(
     arxiv_id: str,
     db: sqlite3.Connection = Depends(get_db),

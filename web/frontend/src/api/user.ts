@@ -19,14 +19,14 @@ export async function updatePaper(
   arxiv_id: string,
   liked: number
 ): Promise<{ arxiv_id: string; liked: number }> {
-  return apiFetch(`/api/users/me/papers/${arxiv_id}`, {
+  return apiFetch(`/api/users/me/papers/${encodeURIComponent(arxiv_id)}`, {
     method: "PATCH",
     body: JSON.stringify({ liked }),
   });
 }
 
 export async function deletePaper(arxiv_id: string): Promise<void> {
-  return apiFetch(`/api/users/me/papers/${arxiv_id}`, { method: "DELETE" });
+  return apiFetch(`/api/users/me/papers/${encodeURIComponent(arxiv_id)}`, { method: "DELETE" });
 }
 
 export async function importAds(text: string): Promise<ImportResult> {
