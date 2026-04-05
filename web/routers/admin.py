@@ -38,11 +38,13 @@ def list_users(
             u.is_active,
             u.is_admin,
             u.created_at,
-            COUNT(up.arxiv_id) AS paper_count,
-            um.trained_at     AS model_trained_at
+            COUNT(DISTINCT up.arxiv_id) AS paper_count,
+            um.trained_at     AS model_trained_at,
+            COUNT(DISTINCT il.id) AS import_count
         FROM users u
         LEFT JOIN user_papers  up ON up.user_id = u.id AND up.liked != 0
         LEFT JOIN user_models  um ON um.user_id = u.id
+        LEFT JOIN user_import_log il ON il.user_id = u.id
         GROUP BY u.id
         ORDER BY u.created_at DESC
     """).fetchall()
@@ -55,6 +57,7 @@ def list_users(
             "created_at":      r["created_at"],
             "paper_count":     r["paper_count"],
             "model_trained_at": r["model_trained_at"],
+            "import_count":    r["import_count"],
         }
         for r in rows
     ]
@@ -77,6 +80,19 @@ def patch_user(
     db.execute("UPDATE users SET is_active = ? WHERE id = ?", (int(body.is_active), user_id))
     db.commit()
     return {"user_id": user_id, "is_active": body.is_active}
+
+
+@router.delete("/users/{user_id}/import-log", status_code=status.HTTP_204_NO_CONTENT)
+def reset_user_import_log(
+    user_id: int,
+    db: sqlite3.Connection = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    row = db.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    db.execute("DELETE FROM user_import_log WHERE user_id = ?", (user_id,))
+    db.commit()
 
 
 # ---------------------------------------------------------------------------

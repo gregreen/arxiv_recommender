@@ -75,6 +75,16 @@ ONBOARDING_BROWSE_LIMIT = 150
 # Time windows exposed by the recommendations endpoint.
 RECOMMEND_TIME_WINDOWS = ("day", "week", "month")
 
+# ---------------------------------------------------------------------------
+# Import rate limiting
+# ---------------------------------------------------------------------------
+# Users with fewer than IMPORT_TIER_THRESHOLD lifetime imports are Tier A
+# (higher daily limit); users at or above are Tier B (lower daily limit).
+# Limits are enforced over a rolling 24-hour window.
+IMPORT_TIER_THRESHOLD      = 32
+IMPORT_DAILY_LIMIT_TIER_A  = 16
+IMPORT_DAILY_LIMIT_TIER_B  = 4
+
 # How long the ingest daemons sleep between polls when the task queue is empty.
 META_INGEST_POLL_INTERVAL = 5   # seconds
 EMBED_INGEST_POLL_INTERVAL = 0.1 # seconds

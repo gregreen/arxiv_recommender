@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
-import { getAdminUsers, patchAdminUser, type AdminUser } from "../api/admin";
+import { getAdminUsers, patchAdminUser, resetUserImportLog, type AdminUser } from "../api/admin";
 import { formatTimestamp } from "../utils";
 
 // ---------------------------------------------------------------------------
 // Column resize hook
 // ---------------------------------------------------------------------------
 
-type ColKey = "id" | "email" | "status" | "admin" | "paper_count" | "model_trained_at" | "created_at" | "actions";
+type ColKey = "id" | "email" | "status" | "admin" | "paper_count" | "import_count" | "model_trained_at" | "created_at" | "actions";
 
 const DEFAULT_WIDTHS: Record<ColKey, number> = {
   id:              55,
@@ -14,9 +14,10 @@ const DEFAULT_WIDTHS: Record<ColKey, number> = {
   status:          90,
   admin:           75,
   paper_count:     75,
+  import_count:    80,
   model_trained_at:170,
   created_at:     170,
-  actions:        110,
+  actions:        150,
 };
 
 function useResizableColumns() {
@@ -52,6 +53,7 @@ function getValue(u: AdminUser, col: SortableCol): string | number {
     case "status":          return u.is_active ? 1 : 0;
     case "admin":           return u.is_admin ? 1 : 0;
     case "paper_count":     return u.paper_count;
+    case "import_count":    return u.import_count;
     case "model_trained_at": return u.model_trained_at ?? "";
     case "created_at":      return u.created_at;
   }
@@ -78,6 +80,7 @@ const COLS: { key: ColKey; label: string; sortable: boolean }[] = [
   { key: "status",          label: "Status",        sortable: true  },
   { key: "admin",           label: "Admin",         sortable: true  },
   { key: "paper_count",     label: "Papers",        sortable: true  },
+  { key: "import_count",    label: "Imports",       sortable: true  },
   { key: "model_trained_at",label: "Model trained", sortable: true  },
   { key: "created_at",      label: "Registered",    sortable: true  },
   { key: "actions",         label: "",              sortable: false },
@@ -92,6 +95,7 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
   const [toggling, setToggling] = useState<number | null>(null);
+  const [actionPending, setActionPending] = useState<Set<number>>(new Set());
 
   // Filters
   const [search, setSearch]           = useState("");
@@ -120,6 +124,19 @@ export default function AdminUsersPage() {
       // ignore
     } finally {
       setToggling(null);
+    }
+  }
+
+  async function handleResetImports(u: AdminUser) {
+    if (!window.confirm(`Reset import log for ${u.email}? This resets their rate-limit tier back to Tier A.`)) return;
+    setActionPending((prev) => new Set(prev).add(u.id));
+    try {
+      await resetUserImportLog(u.id);
+      setUsers((prev) => prev.map((x) => x.id === u.id ? { ...x, import_count: 0 } : x));
+    } catch {
+      // ignore
+    } finally {
+      setActionPending((prev) => { const s = new Set(prev); s.delete(u.id); return s; });
     }
   }
 
@@ -218,7 +235,7 @@ export default function AdminUsersPage() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {sorted.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">No users match the current filters.</td></tr>
+              <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-400">No users match the current filters.</td></tr>
             ) : sorted.map((u) => (
               <tr key={u.id} className="hover:bg-gray-50 transition-colors">
                 <td className="px-3 py-2.5 text-gray-400 tabular-nums truncate">{u.id}</td>
@@ -234,17 +251,26 @@ export default function AdminUsersPage() {
                   )}
                 </td>
                 <td className="px-3 py-2.5 text-gray-600 tabular-nums">{u.paper_count}</td>
+                <td className="px-3 py-2.5 text-gray-600 tabular-nums">{u.import_count}</td>
                 <td className="px-3 py-2.5 text-gray-400 text-xs tabular-nums truncate">
                   {u.model_trained_at ? formatTimestamp(u.model_trained_at) : "—"}
                 </td>
                 <td className="px-3 py-2.5 text-gray-400 text-xs tabular-nums truncate">{formatTimestamp(u.created_at)}</td>
-                <td className="px-3 py-2.5 text-right">
+                <td className="px-3 py-2.5 text-right flex gap-1 justify-end">
                   <button
                     onClick={() => handleToggleActive(u)}
                     disabled={toggling === u.id}
                     className={`text-xs px-3 py-1 rounded font-medium transition-colors disabled:opacity-40 ${u.is_active ? "bg-yellow-100 hover:bg-yellow-200 text-yellow-800" : "bg-green-100 hover:bg-green-200 text-green-800"}`}
                   >
                     {u.is_active ? "Deactivate" : "Activate"}
+                  </button>
+                  <button
+                    onClick={() => handleResetImports(u)}
+                    disabled={actionPending.has(u.id)}
+                    className="text-xs px-2 py-1 rounded font-medium transition-colors disabled:opacity-40 bg-gray-100 hover:bg-gray-200 text-gray-700"
+                    title="Reset import log (resets rate-limit tier)"
+                  >
+                    Reset imports
                   </button>
                 </td>
               </tr>

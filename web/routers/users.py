@@ -19,7 +19,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator
 
 from arxiv_lib.appdb import enqueue_task
-from arxiv_lib.config import ARXIV_CATEGORIES
+from arxiv_lib.config import (
+    ARXIV_CATEGORIES,
+    IMPORT_TIER_THRESHOLD,
+    IMPORT_DAILY_LIMIT_TIER_A,
+    IMPORT_DAILY_LIMIT_TIER_B,
+)
 from web.dependencies import get_current_user, get_db
 
 router = APIRouter(prefix="/users/me", tags=["users"])
@@ -39,6 +44,25 @@ def _validate_arxiv_id(arxiv_id: str) -> str:
             detail=f"Invalid arXiv ID format: {arxiv_id!r}",
         )
     return clean
+
+
+def _get_daily_limit(db: sqlite3.Connection, user_id: int) -> int:
+    """Return the daily import limit based on the user's lifetime import count."""
+    lifetime = db.execute(
+        "SELECT COUNT(*) FROM user_import_log WHERE user_id = ?", (user_id,)
+    ).fetchone()[0]
+    return IMPORT_DAILY_LIMIT_TIER_A if lifetime < IMPORT_TIER_THRESHOLD else IMPORT_DAILY_LIMIT_TIER_B
+
+
+def _count_recent_imports(db: sqlite3.Connection, user_id: int) -> int:
+    """Count this user's imports in the rolling 24-hour window."""
+    return db.execute(
+        """
+        SELECT COUNT(*) FROM user_import_log
+         WHERE user_id = ? AND imported_at >= datetime('now', '-24 hours')
+        """,
+        (user_id,),
+    ).fetchone()[0]
 
 
 def _ensure_fetch_meta_enqueued(db: sqlite3.Connection, arxiv_id: str) -> None:
@@ -106,10 +130,27 @@ def add_paper(
     user=Depends(get_current_user),
 ):
     arxiv_id = _validate_arxiv_id(body.arxiv_id)
+    already_exists = db.execute(
+        "SELECT 1 FROM user_papers WHERE user_id = ? AND arxiv_id = ?",
+        (user["id"], arxiv_id),
+    ).fetchone()
+    if not already_exists:
+        daily_limit = _get_daily_limit(db, user["id"])
+        recent = _count_recent_imports(db, user["id"])
+        if recent >= daily_limit:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Daily import limit of {daily_limit} reached. Try again later.",
+            )
     db.execute(
         "INSERT OR IGNORE INTO user_papers (user_id, arxiv_id, liked) VALUES (?, ?, ?)",
         (user["id"], arxiv_id, body.liked),
     )
+    if not already_exists:
+        db.execute(
+            "INSERT INTO user_import_log (user_id, arxiv_id) VALUES (?, ?)",
+            (user["id"], arxiv_id),
+        )
     _ensure_fetch_meta_enqueued(db, arxiv_id)
     db.commit()
     return {"arxiv_id": arxiv_id, "liked": body.liked}
@@ -143,18 +184,30 @@ def import_ads(
     }
 
     imported = 0
+    rate_limited = 0
+    daily_limit = _get_daily_limit(db, user["id"])
+    recent = _count_recent_imports(db, user["id"])
+
     for arxiv_id in unique_ids:
         if arxiv_id in existing:
+            continue
+        if recent >= daily_limit:
+            rate_limited += 1
             continue
         db.execute(
             "INSERT OR IGNORE INTO user_papers (user_id, arxiv_id, liked) VALUES (?, ?, 1)",
             (user["id"], arxiv_id),
         )
+        db.execute(
+            "INSERT INTO user_import_log (user_id, arxiv_id) VALUES (?, ?)",
+            (user["id"], arxiv_id),
+        )
         _ensure_fetch_meta_enqueued(db, arxiv_id)
         imported += 1
+        recent += 1
 
     db.commit()
-    return {"imported": imported, "skipped": len(unique_ids) - imported}
+    return {"imported": imported, "skipped": len(unique_ids) - imported - rate_limited, "rate_limited": rate_limited}
 
 
 # ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ export interface AdminUser {
   created_at: string;
   paper_count: number;
   model_trained_at: string | null;
+  import_count: number;
 }
 
 export interface AdminTask {
@@ -72,6 +73,10 @@ export function resetAdminTask(taskId: number): Promise<AdminTask> {
 
 export function deleteAdminTask(taskId: number): Promise<void> {
   return apiFetch(`/api/admin/tasks/${taskId}`, { method: "DELETE" });
+}
+
+export function resetUserImportLog(userId: number): Promise<void> {
+  return apiFetch(`/api/admin/users/${userId}/import-log`, { method: "DELETE" });
 }
 
 export function getAdminPapers(params?: {

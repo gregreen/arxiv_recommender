@@ -51,6 +51,7 @@ export default function LibraryPage() {
   // ADS import form
   const [adsText, setAdsText] = useState("");
   const [adsResult, setAdsResult] = useState<string | null>(null);
+  const [adsHasWarning, setAdsHasWarning] = useState(false);
   const [adsError, setAdsError] = useState<string | null>(null);
   const [adsLoading, setAdsLoading] = useState(false);
 
@@ -113,7 +114,13 @@ export default function LibraryPage() {
     setAdsLoading(true);
     try {
       const result = await importAds(adsText.trim());
-      setAdsResult(`Imported ${result.imported} paper(s), skipped ${result.skipped}.`);
+      let msg = `Imported ${result.imported} paper(s), skipped ${result.skipped}.`;
+      const hasWarning = result.rate_limited > 0;
+      if (hasWarning) {
+        msg += ` ${result.rate_limited} paper(s) were not imported due to the daily import limit.`;
+      }
+      setAdsResult(msg);
+      setAdsHasWarning(hasWarning);
       setAdsText("");
       // Refresh list
       const updated = await getMyPapers();
@@ -186,7 +193,11 @@ export default function LibraryPage() {
             </div>
           )}
           {adsResult && (
-            <div className="mb-3 text-sm text-green-700 bg-green-50 border border-green-200 rounded p-2">
+            <div className={`mb-3 text-sm rounded p-2 border ${
+              adsHasWarning
+                ? "text-amber-700 bg-amber-50 border-amber-200"
+                : "text-green-700 bg-green-50 border-green-200"
+            }`}>
               {adsResult}
             </div>
           )}

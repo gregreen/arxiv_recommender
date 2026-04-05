@@ -45,6 +45,7 @@ export interface UserPaper {
 export interface ImportResult {
   imported: number;
   skipped: number;
+  rate_limited: number;
 }
 
 export type TimeWindow = "day" | "week" | "month";

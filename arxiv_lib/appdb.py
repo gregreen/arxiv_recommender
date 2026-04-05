@@ -112,6 +112,17 @@ CREATE TABLE IF NOT EXISTS task_queue (
 CREATE INDEX IF NOT EXISTS task_queue_pending
     ON task_queue(type, status, created_at)
     WHERE status = 'pending';
+
+-- Per-user import log (used for rate limiting)
+-- Records every new paper a user adds to their library for the first time.
+CREATE TABLE IF NOT EXISTS user_import_log (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    arxiv_id    TEXT NOT NULL,
+    imported_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS user_import_log_user_time
+    ON user_import_log(user_id, imported_at);
 """
 
 
