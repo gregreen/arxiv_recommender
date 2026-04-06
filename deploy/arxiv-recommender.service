@@ -6,6 +6,7 @@ After=network.target
 Type=simple
 User=<user>
 WorkingDirectory=<project_dir>
+EnvironmentFile=<project_dir>/.env
 ExecStart=<project_dir>/.venv/bin/uvicorn \
     --workers 2 \
     --uds /run/arxiv-recommender/app.sock \

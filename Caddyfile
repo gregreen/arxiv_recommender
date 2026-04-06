@@ -3,14 +3,23 @@
 # Prerequisites:
 #   1. Install Caddy: https://caddyserver.com/docs/install
 #   2. Point your domain's A record at this server's IP.
-#   3. Run uvicorn bound to localhost only:
-#        SECRET_KEY=<key> uvicorn web.app:app --host 127.0.0.1 --port 8000
-#   4. Start Caddy (as root or with cap_net_bind_service):
-#        caddy run --config Caddyfile
+#   3. deploy.sh installs this file to /etc/caddy/Caddyfile after substituting
+#      <DOMAIN> and <project_dir> with the values set in deploy.sh.
 #
 # Caddy automatically obtains and renews a Let's Encrypt TLS certificate.
-# Replace "yourdomain.com" with your actual domain.
+# API requests (/api/*) are proxied to uvicorn via Unix socket.
+# All other requests serve the React SPA from web/frontend/dist/.
 
-yourdomain.com {
-    reverse_proxy 127.0.0.1:8000
+<DOMAIN> {
+    # Proxy API requests to the uvicorn backend
+    handle /api/* {
+        reverse_proxy unix//run/arxiv-recommender/app.sock
+    }
+
+    # Serve the React SPA for everything else
+    handle {
+        root * <project_dir>/web/frontend/dist
+        try_files {path} /index.html
+        file_server
+    }
 }

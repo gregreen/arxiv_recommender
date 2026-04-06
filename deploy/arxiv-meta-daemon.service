@@ -1,0 +1,13 @@
+[Unit]
+Description=arXiv Recommender Metadata Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=<user>
+WorkingDirectory=<project_dir>
+ExecStart=<project_dir>/.venv/bin/python3 daemons/meta_daemon.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
