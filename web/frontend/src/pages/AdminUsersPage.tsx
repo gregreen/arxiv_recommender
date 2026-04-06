@@ -6,12 +6,13 @@ import { formatTimestamp } from "../utils";
 // Column resize hook
 // ---------------------------------------------------------------------------
 
-type ColKey = "id" | "email" | "status" | "admin" | "paper_count" | "import_count" | "model_trained_at" | "created_at" | "actions";
+type ColKey = "id" | "email" | "status" | "email_verified" | "admin" | "paper_count" | "import_count" | "model_trained_at" | "created_at" | "actions";
 
 const DEFAULT_WIDTHS: Record<ColKey, number> = {
   id:              55,
   email:          240,
   status:          90,
+  email_verified:  90,
   admin:           75,
   paper_count:     75,
   import_count:    80,
@@ -51,6 +52,7 @@ function getValue(u: AdminUser, col: SortableCol): string | number {
     case "id":              return u.id;
     case "email":           return u.email.toLowerCase();
     case "status":          return u.is_active ? 1 : 0;
+    case "email_verified":  return u.email_verified ? 1 : 0;
     case "admin":           return u.is_admin ? 1 : 0;
     case "paper_count":     return u.paper_count;
     case "import_count":    return u.import_count;
@@ -78,6 +80,7 @@ const COLS: { key: ColKey; label: string; sortable: boolean }[] = [
   { key: "id",              label: "ID",            sortable: true  },
   { key: "email",           label: "Email",         sortable: true  },
   { key: "status",          label: "Status",        sortable: true  },
+  { key: "email_verified",  label: "Verified",      sortable: true  },
   { key: "admin",           label: "Admin",         sortable: true  },
   { key: "paper_count",     label: "Papers",        sortable: true  },
   { key: "import_count",    label: "Imports",       sortable: true  },
@@ -235,7 +238,7 @@ export default function AdminUsersPage() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {sorted.length === 0 ? (
-              <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-400">No users match the current filters.</td></tr>
+              <tr><td colSpan={10} className="px-4 py-6 text-center text-gray-400">No users match the current filters.</td></tr>
             ) : sorted.map((u) => (
               <tr key={u.id} className="hover:bg-gray-50 transition-colors">
                 <td className="px-3 py-2.5 text-gray-400 tabular-nums truncate">{u.id}</td>
@@ -243,6 +246,11 @@ export default function AdminUsersPage() {
                 <td className="px-3 py-2.5">
                   <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${u.is_active ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>
                     {u.is_active ? "Active" : "Pending"}
+                  </span>
+                </td>
+                <td className="px-3 py-2.5">
+                  <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${u.email_verified ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500"}`}>
+                    {u.email_verified ? "Verified" : "Unverified"}
                   </span>
                 </td>
                 <td className="px-3 py-2.5">

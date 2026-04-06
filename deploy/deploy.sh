@@ -103,7 +103,14 @@ done
 if [[ ! -f "$PROJECT_DIR/.env" ]]; then
     echo "==> Generating SECRET_KEY..."
     secret=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-    echo "SECRET_KEY=$secret" > "$PROJECT_DIR/.env"
+    cat > "$PROJECT_DIR/.env" <<ENVEOF
+SECRET_KEY=$secret
+
+# Email verification (set EMAIL_VERIFICATION_ENABLED=1 to enable)
+EMAIL_VERIFICATION_ENABLED=0
+EMAIL_FROM=noreply@mail.$DOMAIN
+APP_BASE_URL=https://$DOMAIN
+ENVEOF
     chown "$USER":"$USER" "$PROJECT_DIR/.env"
     chmod 600 "$PROJECT_DIR/.env"
     echo
@@ -172,7 +179,9 @@ cat <<EOF
 1. Verify config files exist in $PROJECT_DIR:
 
    api_keys.json   — required keys: "summary_api_key", "embed_api_key", "semantic_scholar"
-                     example: {"summary_api_key": "sk-...", "embed_api_key": "sk-...", "semantic_scholar": "..."}
+                     if email verification enabled: also "resend_api_key"
+                     example: {"summary_api_key": "sk-...", "embed_api_key": "sk-...",
+                               "semantic_scholar": "...", "resend_api_key": "re_..."}
 
    llm_config.json — required keys: "embedding_model", "summary_model", "base_url"
                      example: {"embedding_model": "...", "summary_model": "...", "base_url": "..."}

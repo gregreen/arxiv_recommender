@@ -1,31 +1,51 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { login } from "../api/auth";
+import { login, resendVerification } from "../api/auth";
 import { useAuth } from "../AuthContext";
-import { apiFetch } from "../api/client";
+import { apiFetch, ApiError } from "../api/client";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pendingVerification, setPendingVerification] = useState(false);
+  const [resendStatus, setResendStatus] = useState<string | null>(null);
   const { setUser } = useAuth();
   const navigate = useNavigate();
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setPendingVerification(false);
     setLoading(true);
     try {
       await login(email, password);
-      // Fetch user info after login to populate auth context
       const data = await apiFetch<{ user_id: number; email: string; is_admin: boolean }>("/api/auth/me");
       setUser({ userId: data.user_id, email: data.email, isAdmin: data.is_admin });
       navigate("/");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      if (err instanceof ApiError && err.status === 403 && err.message === "verify_email_pending") {
+        setPendingVerification(true);
+      } else {
+        setError(err instanceof Error ? err.message : "Login failed");
+      }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleResend() {
+    setResendStatus(null);
+    try {
+      await resendVerification(email);
+      setResendStatus("Verification email sent. Please check your inbox.");
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 429) {
+        setResendStatus(err.message);
+      } else {
+        setResendStatus("Could not send verification email. Please try again later.");
+      }
     }
   }
 
@@ -33,11 +53,22 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="bg-white shadow rounded-lg p-8 w-full max-w-sm">
         <h1 className="text-2xl font-bold mb-6 text-gray-800">Sign In</h1>
-        {error && (
+        {pendingVerification ? (
+          <div className="mb-4 text-sm text-yellow-800 bg-yellow-50 border border-yellow-200 rounded p-3 space-y-2">
+            <p>Your email address hasn't been verified yet. Please check your inbox for a verification link.</p>
+            <button
+              onClick={handleResend}
+              className="text-blue-600 hover:underline text-sm font-medium"
+            >
+              Resend verification email
+            </button>
+            {resendStatus && <p className="text-gray-600">{resendStatus}</p>}
+          </div>
+        ) : error ? (
           <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2">
             {error}
           </div>
-        )}
+        ) : null}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>

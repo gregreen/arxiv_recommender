@@ -7,7 +7,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
@@ -15,8 +15,8 @@ export default function RegisterPage() {
     setError(null);
     setLoading(true);
     try {
-      await register(email, password);
-      setSuccess(true);
+      const data = await register(email, password);
+      setSuccessMessage(data.message);
     } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 409) {
         setError("An account with this email already exists.");
@@ -28,14 +28,12 @@ export default function RegisterPage() {
     }
   }
 
-  if (success) {
+  if (successMessage) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="bg-white shadow rounded-lg p-8 w-full max-w-sm text-center">
           <h1 className="text-2xl font-bold mb-4 text-gray-800">Request Received</h1>
-          <p className="text-gray-600 mb-4">
-            Your account request has been received. An administrator will activate it shortly.
-          </p>
+          <p className="text-gray-600 mb-4">{successMessage}</p>
           <Link to="/login" className="text-blue-600 hover:underline text-sm">
             Back to Sign In
           </Link>

@@ -5,6 +5,7 @@ export interface AdminUser {
   email: string;
   is_active: boolean;
   is_admin: boolean;
+  email_verified: boolean;
   created_at: string;
   paper_count: number;
   model_trained_at: string | null;

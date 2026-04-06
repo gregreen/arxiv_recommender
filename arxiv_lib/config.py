@@ -162,3 +162,20 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "")
 
 JWT_ALGORITHM   = "HS256"
 JWT_EXPIRE_HOURS = 24
+
+# ---------------------------------------------------------------------------
+# Email verification
+# ---------------------------------------------------------------------------
+# Set EMAIL_VERIFICATION_ENABLED=1 in the environment to enable email
+# verification on registration.  Requires resend_api_key in api_keys.json,
+# EMAIL_FROM (the sending address), and APP_BASE_URL (the public HTTPS root).
+#
+# When disabled (default), new accounts are inactive until an admin activates
+# them manually via scripts/activate_user.py.
+#
+# Toggling this flag is safe: existing rows are unaffected because the login
+# check uses email_verify_token IS NOT NULL (set only when verification was
+# requested) rather than the flag value.
+EMAIL_VERIFICATION_ENABLED: bool = os.environ.get("EMAIL_VERIFICATION_ENABLED", "0") == "1"
+EMAIL_FROM:     str = os.environ.get("EMAIL_FROM", "")
+APP_BASE_URL:   str = os.environ.get("APP_BASE_URL", "").rstrip("/")

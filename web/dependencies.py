@@ -44,7 +44,7 @@ def get_current_user(
         )
 
     row = db.execute(
-        "SELECT id, email, is_active, is_admin FROM users WHERE id = ?", (user_id,)
+        "SELECT id, email, is_active, is_admin, email_verified FROM users WHERE id = ?", (user_id,)
     ).fetchone()
 
     if row is None:

@@ -11,3 +11,4 @@ slowapi
 PyJWT
 passlib[bcrypt]
 pydantic[email]
+resend
