@@ -1,0 +1,13 @@
+requests
+tenacity
+openai>=1.0
+arxiv-to-prompt[tokens]
+numpy
+scipy
+scikit-learn
+fastapi
+uvicorn[standard]
+slowapi
+PyJWT
+passlib[bcrypt]
+pydantic[email]

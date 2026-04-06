@@ -1,0 +1,13 @@
+[Unit]
+Description=arXiv Recommender Embedding Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=<user>
+WorkingDirectory=<project_dir>
+ExecStart=<project_dir>/.venv/bin/python3 daemons/embed_daemon.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

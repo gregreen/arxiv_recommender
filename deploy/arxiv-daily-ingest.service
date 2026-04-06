@@ -1,0 +1,9 @@
+[Unit]
+Description=arXiv Daily Paper Ingest
+After=network.target
+
+[Service]
+Type=oneshot
+User=<user>
+WorkingDirectory=<project_dir>
+ExecStart=<project_dir>/.venv/bin/python3 scripts/cron_daily.py

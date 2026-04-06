@@ -1,0 +1,17 @@
+[Unit]
+Description=arXiv Recommender Web App
+After=network.target
+
+[Service]
+Type=simple
+User=<user>
+WorkingDirectory=<project_dir>
+ExecStart=<project_dir>/.venv/bin/uvicorn \
+    --workers 2 \
+    --uds /run/arxiv-recommender/app.sock \
+    web.app:app
+Restart=on-failure
+RuntimeDirectory=arxiv-recommender
+
+[Install]
+WantedBy=multi-user.target

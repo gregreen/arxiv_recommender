@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily arXiv Paper Ingest Timer
+
+[Timer]
+OnCalendar=Mon,Tue,Wed,Thu,Fri *-*-* 21:30:00
+Timezone=America/New_York
+Persistent=true
+Unit=arxiv-daily-ingest.service
+
+[Install]
+WantedBy=timers.target
