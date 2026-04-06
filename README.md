@@ -115,34 +115,58 @@ python3 daemons/embed_daemon.py &
 
 ## Running the Application
 
+### Local development
+
 ```bash
-# 1. Start background daemons
+# 1. Create and activate a Python virtualenv
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# 2. Start background daemons
 python3 daemons/meta_daemon.py &
 python3 daemons/embed_daemon.py &
 
-# 2. Start the web server (dev)
-uvicorn web.app:app --host 127.0.0.1 --port 8000
+# 3. Start the web server
+SECRET_KEY=dev python3 -m uvicorn web.app:app --reload --port 8000
 
-# 3. Start the frontend dev server
-cd web/frontend && npm run dev
-
-# 4. (Production) Caddy handles HTTPS and reverse-proxies to uvicorn
-caddy run --config Caddyfile
+# 4. Start the frontend dev server (separate terminal)
+cd web/frontend && npm install && npm run dev
 ```
 
-## User & Admin Management
+Vite proxies `/api` requests to `localhost:8000`, so the full app is available at `http://localhost:5173`.
 
-New accounts are inactive by default and must be approved by an admin. All admin-privilege changes are CLI-only (not available via the web UI).
+### Production deployment
+
+Production uses **Caddy** as a reverse proxy (handles HTTPS + TLS certificate renewal automatically) and **systemd** to manage the three long-running processes.
+
+#### 1. Install Caddy
+
+Follow the official package-manager instructions for your distro at https://caddyserver.com/docs/install. For example, on Debian/Ubuntu:
 
 ```bash
-python3 scripts/activate_user.py --list                  # list all users
-python3 scripts/activate_user.py user@example.com        # activate
-python3 scripts/activate_user.py user@example.com --deactivate
-python3 scripts/activate_user.py user@example.com --make-admin
-python3 scripts/activate_user.py user@example.com --remove-admin
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudflare.com/public/gpan/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/cloudflare-main.gpg
+curl -1sLf 'https://dl.cloudflare.com/public/Repositories/deb/PUBLIC_KEY.gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudflare.com/public/Repositories/deb/deb.cloudflare.com/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update && sudo apt install caddy
 ```
 
-## Configuration
+Caddy requires ports 80 and 443 to be open in your firewall and a DNS A record pointing your domain at the server's IP address.
+
+#### 2. Create the config files
+
+These files are not committed to the repository and must be created manually in the project root.
+
+**`api_keys.json`** — API credentials:
+
+```json
+{
+  "summary_api_key":  "your-summary-llm-api-key",
+  "embed_api_key":    "your-embedding-llm-api-key",
+  "semantic_scholar": "your-semantic-scholar-api-key"
+}
+```
 
 **`llm_config.json`** — LLM endpoints and models:
 
@@ -164,15 +188,59 @@ python3 scripts/activate_user.py user@example.com --remove-admin
 }
 ```
 
-**`api_keys.json`** — API credentials:
+#### 3. Run the deploy script
 
-```json
-{
-  "summary_api_key": "...",
-  "embed_api_key":   "...",
-  "semantic_scholar": "..."
-}
+Edit the three variables at the top of `deploy/deploy.sh`:
+
+```bash
+USER="yourlinuxusername"
+PROJECT_DIR="/home/yourlinuxusername/projects/arxiv_recommender"
+DOMAIN="arxiv.yourdomain.com"
 ```
+
+Then run it as root:
+
+```bash
+sudo bash deploy/deploy.sh
+```
+
+The script will:
+- Create a Python virtualenv and install all dependencies
+- Build the React frontend
+- Generate a `SECRET_KEY` and write it to `.env` (keep a backup of this file)
+- Install the systemd service and timer files
+- Install and validate the Caddyfile
+- Enable and start all services
+
+It is safe to re-run for updates (e.g. after pulling new code). The `.env` file is never overwritten once created.
+
+#### 4. Activate the first admin user
+
+Register an account via the web UI, then promote it from the command line:
+
+```bash
+sudo -u $USER .venv/bin/python3 scripts/activate_user.py your@email.com --make-admin
+```
+
+New registrations are inactive by default. Admins can activate users via the web UI or CLI.
+
+## User & Admin Management
+
+New accounts are inactive by default and must be approved by an admin. All admin-privilege changes are CLI-only (not available via the web UI).
+
+```bash
+python3 scripts/activate_user.py --list                  # list all users
+python3 scripts/activate_user.py user@example.com        # activate
+python3 scripts/activate_user.py user@example.com --deactivate
+python3 scripts/activate_user.py user@example.com --make-admin
+python3 scripts/activate_user.py user@example.com --remove-admin
+```
+
+General user approval can be handled via the admin web interface.
+
+## Configuration
+
+The config files `api_keys.json` and `llm_config.json` are described in the deployment section above.
 
 Key constants in `arxiv_lib/config.py`:
 
