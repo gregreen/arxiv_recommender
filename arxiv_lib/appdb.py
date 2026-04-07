@@ -95,14 +95,16 @@ CREATE INDEX IF NOT EXISTS recommendations_user_window
     ON recommendations(user_id, time_window, rank);
 
 -- Task queue (shared by meta, embed, and recommend daemons)
--- type:    'fetch_meta' | 'embed' | 'recommend'
--- payload: JSON, e.g. {"arxiv_id": "2309.06676"} or {"user_id": 3}
--- status:  'pending' | 'running' | 'done' | 'failed'
+-- type:     'fetch_meta' | 'embed' | 'recommend'
+-- payload:  JSON, e.g. {"arxiv_id": "2309.06676"} or {"user_id": 3}
+-- status:   'pending' | 'running' | 'done' | 'failed'
+-- priority: lower number = higher priority; 1 = daily ingest, 2 = user-initiated
 CREATE TABLE IF NOT EXISTS task_queue (
     id           INTEGER PRIMARY KEY,
     type         TEXT NOT NULL,
     payload      TEXT NOT NULL,     -- JSON
     status       TEXT NOT NULL DEFAULT 'pending',
+    priority     INTEGER NOT NULL DEFAULT 2,
     attempts     INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     started_at   TEXT,
@@ -110,7 +112,7 @@ CREATE TABLE IF NOT EXISTS task_queue (
     error        TEXT
 );
 CREATE INDEX IF NOT EXISTS task_queue_pending
-    ON task_queue(type, status, created_at)
+    ON task_queue(type, status, priority, created_at)
     WHERE status = 'pending';
 
 -- Per-user import log (used for rate limiting)
@@ -175,6 +177,10 @@ def init_app_db(path: str = APP_DB_PATH) -> None:
             con.execute("ALTER TABLE users ADD COLUMN email_verify_resend_count INTEGER NOT NULL DEFAULT 0")
         if "email_verify_next_resend_at" not in cols:
             con.execute("ALTER TABLE users ADD COLUMN email_verify_next_resend_at TEXT")
+        tq_cols = {row[1] for row in con.execute("PRAGMA table_info(task_queue)")}
+        if "priority" not in tq_cols:
+            con.execute("ALTER TABLE task_queue ADD COLUMN priority INTEGER NOT NULL DEFAULT 2")
+            con.execute("UPDATE task_queue SET priority = 2 WHERE type = 'embed' AND status = 'pending'")
         con.commit()
     finally:
         con.close()
@@ -184,7 +190,12 @@ def init_app_db(path: str = APP_DB_PATH) -> None:
 # Task queue helpers
 # ---------------------------------------------------------------------------
 
-def enqueue_task(con: sqlite3.Connection, task_type: str, payload: dict[str, Any]) -> int:
+def enqueue_task(
+    con: sqlite3.Connection,
+    task_type: str,
+    payload: dict[str, Any],
+    priority: int = 2,
+) -> int:
     """
     Insert a new 'pending' task into task_queue.
 
@@ -196,6 +207,9 @@ def enqueue_task(con: sqlite3.Connection, task_type: str, payload: dict[str, Any
         'embed' or 'recommend'.
     payload : dict
         JSON-serialisable payload dict (e.g. {"arxiv_id": "2309.06676"}).
+    priority : int
+        Lower number = higher priority.  1 = daily ingest, 2 = user-initiated
+        (default).  Tasks with equal priority are processed oldest-first.
 
     Returns
     -------
@@ -203,8 +217,8 @@ def enqueue_task(con: sqlite3.Connection, task_type: str, payload: dict[str, Any
         Row id of the newly created task.
     """
     cur = con.execute(
-        "INSERT INTO task_queue (type, payload) VALUES (?, ?)",
-        (task_type, json.dumps(payload)),
+        "INSERT INTO task_queue (type, payload, priority) VALUES (?, ?, ?)",
+        (task_type, json.dumps(payload), priority),
     )
     return cur.lastrowid
 
@@ -239,7 +253,7 @@ def claim_next_task(con: sqlite3.Connection, task_type: str) -> sqlite3.Row | No
          WHERE id = (
                SELECT id FROM task_queue
                 WHERE type = ? AND status = 'pending'
-                ORDER BY created_at
+                ORDER BY priority ASC, created_at ASC
                 LIMIT 1
          )
          RETURNING *
@@ -282,7 +296,7 @@ def claim_next_tasks_batch(
          WHERE id IN (
                SELECT id FROM task_queue
                 WHERE type = ? AND status = 'pending'
-                ORDER BY created_at ASC
+                ORDER BY priority ASC, created_at ASC
                 LIMIT ?
          )
          RETURNING *

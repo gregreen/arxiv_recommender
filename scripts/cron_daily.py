@@ -102,7 +102,10 @@ def run(categories: list[str], db_path: str, date: str | None = None, use_rss: b
 
             enqueued = 0
             for arxiv_id in new_ids:
-                enqueue_task(con, "embed", {"arxiv_id": arxiv_id})
+                # The daily ingest takes priority over user-initiated ingests. We mark
+                # this by setting priority=1 for the daily ingest, and priority=2 for
+                # user-initiated ingests.
+                enqueue_task(con, "embed", {"arxiv_id": arxiv_id}, priority=1)
                 enqueued += 1
 
             con.commit()

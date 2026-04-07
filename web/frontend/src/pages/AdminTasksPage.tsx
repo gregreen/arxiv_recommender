@@ -6,13 +6,14 @@ import { formatTimestamp } from "../utils";
 // Column resize hook
 // ---------------------------------------------------------------------------
 
-type ColKey = "id" | "type" | "payload" | "status" | "attempts" | "created_at" | "started_at" | "completed_at" | "actions";
+type ColKey = "id" | "type" | "payload" | "status" | "priority" | "attempts" | "created_at" | "started_at" | "completed_at" | "actions";
 
 const DEFAULT_WIDTHS: Record<ColKey, number> = {
   id:            60,
   type:         110,
   payload:      200,
   status:        90,
+  priority:      80,
   attempts:      80,
   created_at:   170,
   started_at:   170,
@@ -77,6 +78,7 @@ const COLS: { key: ColKey; label: string }[] = [
   { key: "type",         label: "Type"      },
   { key: "payload",      label: "Payload"   },
   { key: "status",       label: "Status"    },
+  { key: "priority",     label: "Priority"  },
   { key: "attempts",     label: "Attempts"  },
   { key: "created_at",   label: "Created"   },
   { key: "started_at",   label: "Started"   },
@@ -256,9 +258,9 @@ export default function AdminTasksPage() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-400">Loading…</td></tr>
+              <tr><td colSpan={10} className="px-4 py-6 text-center text-gray-400">Loading…</td></tr>
             ) : sorted.length === 0 ? (
-              <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-400">No tasks found.</td></tr>
+              <tr><td colSpan={10} className="px-4 py-6 text-center text-gray-400">No tasks found.</td></tr>
             ) : sorted.map((t) => (
               <tr key={t.id} className="hover:bg-gray-50 transition-colors">
                 <td className="px-3 py-2.5 text-gray-400 tabular-nums truncate">{t.id}</td>
@@ -272,6 +274,7 @@ export default function AdminTasksPage() {
                     <div className="text-xs text-red-500 mt-0.5 truncate" title={t.error}>{t.error}</div>
                   )}
                 </td>
+                <td className="px-3 py-2.5 text-gray-600 tabular-nums">{t.type === "fetch_meta" ? "" : (t.priority ?? "")}</td>
                 <td className="px-3 py-2.5 text-gray-600 tabular-nums">{t.attempts}</td>
                 <td className="px-3 py-2.5 text-gray-400 text-xs tabular-nums truncate">{formatTimestamp(t.created_at)}</td>
                 <td className="px-3 py-2.5 text-gray-400 text-xs tabular-nums truncate">{t.started_at ? formatTimestamp(t.started_at) : "—"}</td>

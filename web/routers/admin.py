@@ -129,7 +129,7 @@ def list_tasks(
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     rows = db.execute(
         f"""
-        SELECT id, type, payload, status, attempts,
+        SELECT id, type, payload, status, priority, attempts,
                created_at, started_at, completed_at, error
         FROM task_queue
         {where}
@@ -151,6 +151,7 @@ def list_tasks(
                 "type":         r["type"],
                 "payload":      r["payload"],
                 "status":       r["status"],
+                "priority":     r["priority"],
                 "attempts":     r["attempts"],
                 "created_at":   r["created_at"],
                 "started_at":   r["started_at"],
@@ -187,6 +188,7 @@ def reset_task(
         "type":         row["type"],
         "payload":      row["payload"],
         "status":       row["status"],
+        "priority":     row["priority"],
         "attempts":     row["attempts"],
         "created_at":   row["created_at"],
         "started_at":   row["started_at"],

@@ -17,6 +17,7 @@ export interface AdminTask {
   type: "fetch_meta" | "embed" | "recommend";
   payload: string;
   status: "pending" | "running" | "done" | "failed";
+  priority: number | null;
   attempts: number;
   created_at: string;
   started_at: string | null;
