@@ -166,16 +166,24 @@ JWT_EXPIRE_HOURS = 24
 # ---------------------------------------------------------------------------
 # Email verification
 # ---------------------------------------------------------------------------
-# Set EMAIL_VERIFICATION_ENABLED=1 in the environment to enable email
-# verification on registration.  Requires resend_api_key in api_keys.json,
-# EMAIL_FROM (the sending address), and APP_BASE_URL (the public HTTPS root).
+# Email verification is enabled when email_config.json exists in the project
+# root and contains a non-empty "verification.email_from" value.
+# Requires resend_api_key in api_keys.json.
 #
-# When disabled (default), new accounts are inactive until an admin activates
-# them manually via scripts/activate_user.py.
+# email_config.json example:
+#   {
+#     "verification": {
+#       "email_from":   "noreply@mail.yourdomain.com",
+#       "app_base_url": "https://yourdomain.com"
+#     }
+#   }
 #
-# Toggling this flag is safe: existing rows are unaffected because the login
-# check uses email_verify_token IS NOT NULL (set only when verification was
-# requested) rather than the flag value.
-EMAIL_VERIFICATION_ENABLED: bool = os.environ.get("EMAIL_VERIFICATION_ENABLED", "0") == "1"
-EMAIL_FROM:     str = os.environ.get("EMAIL_FROM", "")
-APP_BASE_URL:   str = os.environ.get("APP_BASE_URL", "").rstrip("/")
+# Toggling (adding/removing the file or emptying email_from) is safe: existing
+# rows are unaffected because the login check uses email_verify_token IS NOT
+# NULL (set only when verification was requested) rather than this flag.
+EMAIL_CONFIG_FILE = os.path.join(BASE_DIR, "email_config.json")
+_email_config: dict = _load_json_file(EMAIL_CONFIG_FILE, "email_config.json").get("verification", {})
+
+VERIFICATION_EMAIL_FROM: str  = _email_config.get("email_from", "").strip()
+APP_BASE_URL:            str  = _email_config.get("app_base_url", "").rstrip("/")
+EMAIL_VERIFICATION_ENABLED: bool = bool(VERIFICATION_EMAIL_FROM)

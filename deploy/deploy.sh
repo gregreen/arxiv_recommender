@@ -103,14 +103,7 @@ done
 if [[ ! -f "$PROJECT_DIR/.env" ]]; then
     echo "==> Generating SECRET_KEY..."
     secret=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-    cat > "$PROJECT_DIR/.env" <<ENVEOF
-SECRET_KEY=$secret
-
-# Email verification (set EMAIL_VERIFICATION_ENABLED=1 to enable)
-EMAIL_VERIFICATION_ENABLED=0
-EMAIL_FROM=noreply@mail.$DOMAIN
-APP_BASE_URL=https://$DOMAIN
-ENVEOF
+    echo "SECRET_KEY=$secret" > "$PROJECT_DIR/.env"
     chown "$USER":"$USER" "$PROJECT_DIR/.env"
     chmod 600 "$PROJECT_DIR/.env"
     echo
@@ -186,7 +179,10 @@ cat <<EOF
    llm_config.json — required keys: "embedding_model", "summary_model", "base_url"
                      example: {"embedding_model": "...", "summary_model": "...", "base_url": "..."}
 
-   If either is missing, create it and restart:
+   email_config.json — optional; create to enable email verification:
+                     {"verification": {"email_from": "noreply@mail.$DOMAIN", "app_base_url": "https://$DOMAIN"}}
+
+   If any config file is missing, create it and restart:
      systemctl restart arxiv-recommender arxiv-embed-daemon arxiv-meta-daemon
 
 2. Back up $PROJECT_DIR/.env

@@ -3,7 +3,7 @@ Email sending helpers for the arXiv Recommender.
 
 Currently only used for email verification.  Requires:
   - resend_api_key in api_keys.json
-  - EMAIL_FROM and APP_BASE_URL set in the environment
+  - verification.email_from and verification.app_base_url in email_config.json
 
 This module is a no-op when EMAIL_VERIFICATION_ENABLED is False; callers
 are expected to check that flag before calling these functions.
@@ -13,7 +13,7 @@ import logging
 
 import resend
 
-from arxiv_lib.config import API_KEYS, APP_BASE_URL, EMAIL_FROM
+from arxiv_lib.config import API_KEYS, APP_BASE_URL, VERIFICATION_EMAIL_FROM
 
 log = logging.getLogger(__name__)
 
@@ -33,13 +33,13 @@ def send_verification_email(to_address: str, token: str) -> None:
 
     Raises RuntimeError if the Resend API key is missing or the send fails.
     """
-    if not EMAIL_FROM:
+    if not VERIFICATION_EMAIL_FROM:
         raise RuntimeError(
-            "EMAIL_FROM is not set in the environment. Cannot send email."
+            "verification.email_from is not set in email_config.json. Cannot send email."
         )
     if not APP_BASE_URL:
         raise RuntimeError(
-            "APP_BASE_URL is not set in the environment. Cannot send email."
+            "verification.app_base_url is not set in email_config.json. Cannot send email."
         )
 
     _init_resend()
@@ -48,11 +48,11 @@ def send_verification_email(to_address: str, token: str) -> None:
 
     try:
         resend.Emails.send({
-            "from": EMAIL_FROM,
+            "from": VERIFICATION_EMAIL_FROM,
             "to": to_address,
             "subject": "Verify your arXiv Recommender account",
             "html": (
-                "<p>Thanks for registering. Click the link below to verify your "
+                "<p>Thank you for registering. Please click the link below to verify your "
                 "email address. The link expires in 24 hours.</p>"
                 f'<p><a href="{verify_url}">{verify_url}</a></p>'
                 "<p>If you did not register for this service, you can ignore this email.</p>"
