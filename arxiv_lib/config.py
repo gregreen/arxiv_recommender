@@ -162,3 +162,28 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "")
 
 JWT_ALGORITHM   = "HS256"
 JWT_EXPIRE_HOURS = 24
+
+# ---------------------------------------------------------------------------
+# Email verification
+# ---------------------------------------------------------------------------
+# Email verification is enabled when email_config.json exists in the project
+# root and contains a non-empty "verification.email_from" value.
+# Requires resend_api_key in api_keys.json.
+#
+# email_config.json example:
+#   {
+#     "verification": {
+#       "email_from":   "noreply@mail.yourdomain.com",
+#       "app_base_url": "https://yourdomain.com"
+#     }
+#   }
+#
+# Toggling (adding/removing the file or emptying email_from) is safe: existing
+# rows are unaffected because the login check uses email_verify_token IS NOT
+# NULL (set only when verification was requested) rather than this flag.
+EMAIL_CONFIG_FILE = os.path.join(BASE_DIR, "email_config.json")
+_email_config: dict = _load_json_file(EMAIL_CONFIG_FILE, "email_config.json").get("verification", {})
+
+EMAIL_VERIFICATION_ENABLED: bool = _email_config.get("enabled", False)
+VERIFICATION_EMAIL_FROM: str  = _email_config.get("email_from", "").strip()
+APP_BASE_URL:            str  = _email_config.get("app_base_url", "").rstrip("/")

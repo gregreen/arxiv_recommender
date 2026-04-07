@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import VerifyEmailPage from "./pages/VerifyEmailPage";
 import MainLayout from "./pages/MainLayout";
 import LibraryPage from "./pages/LibraryPage";
 import AdminLayout from "./pages/AdminLayout";
@@ -30,6 +31,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route
           path="/"
           element={

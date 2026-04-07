@@ -164,6 +164,17 @@ def init_app_db(path: str = APP_DB_PATH) -> None:
             con.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
         if "is_admin" not in cols:
             con.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+        if "email_verified" not in cols:
+            # Existing users are treated as already verified (no disruption)
+            con.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1")
+        if "email_verify_token" not in cols:
+            con.execute("ALTER TABLE users ADD COLUMN email_verify_token TEXT")
+        if "email_verify_token_expires_at" not in cols:
+            con.execute("ALTER TABLE users ADD COLUMN email_verify_token_expires_at TEXT")
+        if "email_verify_resend_count" not in cols:
+            con.execute("ALTER TABLE users ADD COLUMN email_verify_resend_count INTEGER NOT NULL DEFAULT 0")
+        if "email_verify_next_resend_at" not in cols:
+            con.execute("ALTER TABLE users ADD COLUMN email_verify_next_resend_at TEXT")
         con.commit()
     finally:
         con.close()

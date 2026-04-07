@@ -172,12 +172,22 @@ cat <<EOF
 1. Verify config files exist in $PROJECT_DIR:
 
    api_keys.json   — required keys: "summary_api_key", "embed_api_key", "semantic_scholar"
-                     example: {"summary_api_key": "sk-...", "embed_api_key": "sk-...", "semantic_scholar": "..."}
+                     if email verification enabled: also "resend_api_key"
+                     example: {"summary_api_key": "sk-...", "embed_api_key": "sk-...",
+                               "semantic_scholar": "...", "resend_api_key": "re_..."}
 
    llm_config.json — required keys: "embedding_model", "summary_model", "base_url"
                      example: {"embedding_model": "...", "summary_model": "...", "base_url": "..."}
 
-   If either is missing, create it and restart:
+   email_config.json — optional; create to enable email verification:
+                     {"verification": {
+                         "enabled": true,
+                         "email_from": "noreply@mail.$DOMAIN",
+                         "app_base_url": "https://$DOMAIN"
+                       }
+                     }
+
+   If any config file is missing, create it and restart:
      systemctl restart arxiv-recommender arxiv-embed-daemon arxiv-meta-daemon
 
 2. Back up $PROJECT_DIR/.env
