@@ -113,7 +113,7 @@ def register(body: RegisterRequest, db: sqlite3.Connection = Depends(get_db)):
 @limiter.limit("5/minute")
 def login(request: Request, body: LoginRequest, response: Response, db: sqlite3.Connection = Depends(get_db)):
     row = db.execute(
-        "SELECT id, password_hash, is_active, email_verify_token FROM users WHERE email = ?",
+        "SELECT id, password_hash, is_active, email_verified FROM users WHERE email = ?",
         (body.email,),
     ).fetchone()
 
@@ -123,9 +123,9 @@ def login(request: Request, body: LoginRequest, response: Response, db: sqlite3.
             detail="Incorrect email or password.",
         )
 
-    # email_verify_token IS NOT NULL means verification was requested and is
-    # still pending (regardless of whether the flag is currently on or off).
-    if row["email_verify_token"] is not None:
+    # email_verified = 0 means verification was requested but not yet completed.
+    # (Tokens are retained after verification, so token presence is not a reliable check.)
+    if not row["email_verified"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="verify_email_pending",
@@ -158,7 +158,7 @@ def logout(response: Response):
 @router.get("/verify-email")
 def verify_email(token: str, db: sqlite3.Connection = Depends(get_db)):
     row = db.execute(
-        """SELECT id, email_verify_token_expires_at
+        """SELECT id, email_verified, email_verify_token_expires_at
            FROM users WHERE email_verify_token = ?""",
         (token,),
     ).fetchone()
@@ -166,7 +166,13 @@ def verify_email(token: str, db: sqlite3.Connection = Depends(get_db)):
     if row is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or already-used verification link.",
+            detail="invalid_token",
+        )
+
+    if row["email_verified"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="already_verified",
         )
 
     expires_at = datetime.fromisoformat(row["email_verify_token_expires_at"])
@@ -176,16 +182,18 @@ def verify_email(token: str, db: sqlite3.Connection = Depends(get_db)):
             detail="Verification link has expired. Please request a new one.",
         )
 
+    # Retain token for 7 days so repeat clicks return "already_verified" instead
+    # of "invalid_token". cleanup_tokens.py will NULL it after that window.
+    retention_expiry = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
     db.execute(
         """UPDATE users
            SET email_verified = 1,
                is_active = 1,
-               email_verify_token = NULL,
-               email_verify_token_expires_at = NULL,
+               email_verify_token_expires_at = ?,
                email_verify_resend_count = 0,
                email_verify_next_resend_at = NULL
            WHERE id = ?""",
-        (row["id"],),
+        (retention_expiry, row["id"]),
     )
     db.commit()
     return {"message": "Email verified. You can now sign in."}
