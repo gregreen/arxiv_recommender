@@ -180,7 +180,12 @@ cat <<EOF
                      example: {"embedding_model": "...", "summary_model": "...", "base_url": "..."}
 
    email_config.json — optional; create to enable email verification:
-                     {"verification": {"email_from": "noreply@mail.$DOMAIN", "app_base_url": "https://$DOMAIN"}}
+                     {"verification": {
+                         "enabled": true,
+                         "email_from": "noreply@mail.$DOMAIN",
+                         "app_base_url": "https://$DOMAIN"
+                       }
+                     }
 
    If any config file is missing, create it and restart:
      systemctl restart arxiv-recommender arxiv-embed-daemon arxiv-meta-daemon

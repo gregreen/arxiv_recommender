@@ -184,6 +184,6 @@ JWT_EXPIRE_HOURS = 24
 EMAIL_CONFIG_FILE = os.path.join(BASE_DIR, "email_config.json")
 _email_config: dict = _load_json_file(EMAIL_CONFIG_FILE, "email_config.json").get("verification", {})
 
+EMAIL_VERIFICATION_ENABLED: bool = _email_config.get("enabled", False)
 VERIFICATION_EMAIL_FROM: str  = _email_config.get("email_from", "").strip()
 APP_BASE_URL:            str  = _email_config.get("app_base_url", "").rstrip("/")
-EMAIL_VERIFICATION_ENABLED: bool = bool(VERIFICATION_EMAIL_FROM)
