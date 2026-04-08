@@ -31,7 +31,8 @@ except ImportError:
     sys.exit(1)
 
 import matplotlib
-matplotlib.use("Agg")  # non-interactive backend; works without a display
+# matplotlib.use('Qt5Agg')  # Use Qt5 backend for interactive plotting; switch to 'Agg' for non-interactive
+# matplotlib.use("Agg")  # non-interactive backend; works without a display
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
