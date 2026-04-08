@@ -42,6 +42,7 @@ from arxiv_lib.config import (
     ARXIV_CATEGORIES,
     API_KEYS,
     LLM_CONFIG,
+    SUMMARIZE_SYSTEM_PROMPT
 )
 
 
@@ -894,6 +895,7 @@ def summarize_arxiv_paper(
     _max_tok   = max_tokens or cfg.get("max_input_tokens", 98304)
     _api_key   = API_KEYS.get(cfg.get("api_key_name", "summary_api_key"), "")
     _base_url  = cfg.get("base_url", "https://router.huggingface.co/v1")
+    _completion_kwargs = cfg.get("completion_kwargs", {})
     os.makedirs(SUMMARY_CACHE_DIR, exist_ok=True)
     arxiv_id_clean = sanitize_old_style_arxiv_id(arxiv_id)
     cache_file = os.path.join(SUMMARY_CACHE_DIR, f"{arxiv_id_clean}.txt")
@@ -923,26 +925,7 @@ def summarize_arxiv_paper(
         print(f"  LaTeX source truncated from ~{n_tok} to ~{_max_tok} tokens.")
 
     # --- Build prompt -----------------------------------------------------
-    # TODO: make field-agnostic (currently says "astrophysics researcher")
-    system_prompt = (
-        "You are an expert astrophysics researcher. "
-        "Read the provided paper and produce a concise structured summary. "
-        "Your response must contain exactly these seven labelled sections, "
-        "each on its own line, with no extra commentary before or after:\n\n"
-        "Keywords: <five comma-separated keywords>\n\n"
-        "Scientific Questions: <one paragraph>\n\n"
-        "Data: <one paragraph>\n\n"
-        "Methods: <one paragraph>\n\n"
-        "Results: <one paragraph>\n\n"
-        "Conclusions: <one paragraph>\n\n"
-        "Key takeaway: <one paragraph>\n\n"
-        "Each paragraph should be 5-8 concise sentences. "
-        "Preserve specific numerical results, dataset names, and technique names. "
-        "For Keywords, choose five short descriptive terms that best characterise "
-        "the paper's topic and methods. Do not include any numeric codes in the keywords. "
-        "For the key takeaway, provide what you think is the most important and novel "
-        "insight of the paper. Limit the key takeaway to 1-2 sentences."
-    )
+    system_prompt = SUMMARIZE_SYSTEM_PROMPT
 
     user_message = (
         f"Title: {title}\n"
@@ -962,6 +945,7 @@ def summarize_arxiv_paper(
             ],
             model=_model,
             max_tokens=16384,
+            **_completion_kwargs
         )
         raw_response = response.choices[0].message.content.strip()
     except Exception as e:

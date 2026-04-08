@@ -1,10 +1,17 @@
 {
     "summary": {
-        "base_url": "https://router.huggingface.co/v1",
+        "base_url": "https://openrouter.ai/api/v1",
         "api_key_name": "summary_api_key",
-        "model": "Qwen/Qwen3-Next-80B-A3B-Thinking",
+        "model": "qwen/qwen3.5-35b-a3b",
         "max_input_tokens": 98304,
-        "cot_closing_tags": ["</think>", "</reasoning>", "</scratchpad>"]
+        "cot_closing_tags": ["</think>", "</reasoning>", "</scratchpad>"],
+        "kwargs": {
+            "extra_body": {
+                "reasoning": {
+                    "enabled": true
+                }
+            }
+        }
     },
     "embedding": {
         "base_url": "https://openrouter.ai/api/v1",
