@@ -330,9 +330,10 @@ def main() -> None:
 
         embeddings[arxiv_id] = vector
 
-        # Incremental save after every paper
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(embeddings, f)
+        # Incremental save after every 128 papers
+        if n % 128 == 0 or n == len(pending):
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(embeddings, f)
 
     print(f"\n{len(embeddings)} total embedding(s) saved to {json_path}.")
 
