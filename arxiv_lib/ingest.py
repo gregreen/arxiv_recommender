@@ -42,7 +42,8 @@ from arxiv_lib.config import (
     ARXIV_CATEGORIES,
     API_KEYS,
     LLM_CONFIG,
-    SUMMARIZE_SYSTEM_PROMPT
+    SUMMARIZE_SYSTEM_PROMPT,
+    SUMMARY_EMBEDDING_PROMPT,
 )
 
 
@@ -1030,23 +1031,13 @@ def gen_arxiv_embedding(
     print(f"Fetching structured summary for {arxiv_id}...")
     summary = summarize_arxiv_paper(arxiv_id)
 
-    # TODO (later): make field-agnostic (no mention of astrophysics)
-    prompt = (
-        "Instruct: "
-        "Given an astrophysics paper title, author list, abstract, "
-        "and a structured summary of the paper, "
-        "retrieve other papers that are most similar, "
-        "based on a combination of the research topic, "
-        "scientific questions answered, "
-        "and observational methods, analysis techniques, "
-        "and datasets used.\n"
-        "Query:\n"
-        "Title: " + metadata["title"] + "\n"
-        "Authors: " + ", ".join(metadata["authors"]) + "\n"
-        "Abstract: " + metadata["abstract"] + "\n"
-        "Structured Summary:\n\n"
+    authors_str = ", ".join(metadata["authors"]) or "Unavailable"
+    full_input = SUMMARY_EMBEDDING_PROMPT.format(
+        title=metadata["title"] or "Unavailable",
+        abstract=metadata.get("abstract") or "Unavailable",
+        authors=authors_str,
+        summary=summary or "Unavailable",
     )
-    full_input = prompt + summary
 
     n_tokens = count_tokens(full_input)
     if n_tokens > _max_tok:
