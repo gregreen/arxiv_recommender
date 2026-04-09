@@ -28,6 +28,7 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
   const [committedQuery, setCommittedQuery] = useState("");
   const [searchResultsByWindow, setSearchResultsByWindow] = useState<SearchResponse | null>(null);
   const [isSearchActive, setIsSearchActive] = useState(false);
+  const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -79,10 +80,22 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
 
   function clearSearch() {
     setIsSearchActive(false);
+    setIsSearchExpanded(false);
     setCommittedQuery("");
     setSearchResultsByWindow(null);
     setSearchError(null);
     if (inputRef.current) inputRef.current.value = "";
+  }
+
+  function toggleSearchExpanded() {
+    if (isSearchExpanded) {
+      setIsSearchExpanded(false);
+      if (inputRef.current) inputRef.current.value = "";
+    } else {
+      setIsSearchExpanded(true);
+      // Focus the input after the row renders
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
   }
 
   function handleWindowChange(win: TimeWindow) {
@@ -113,50 +126,69 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
             {w.label}
           </button>
         ))}
-        {!isSearchActive && (
-          <button
-            onClick={() => fetchRecs(window)}
-            disabled={loading}
-            className="ml-auto text-xs text-gray-400 hover:text-gray-600 px-2"
-            title="Refresh"
-          >
-            ↻
-          </button>
-        )}
+        <div className="ml-auto flex items-center gap-1">
+          {!isSearchActive && (
+            <button
+              onClick={() => fetchRecs(window)}
+              disabled={loading}
+              className="text-xs text-gray-400 hover:text-gray-600 px-2"
+              title="Refresh"
+            >
+              ↻
+            </button>
+          )}
+          {!isSearchActive && (
+            <button
+              onClick={toggleSearchExpanded}
+              className={`flex items-center justify-center w-7 h-7 rounded transition-colors ${
+                isSearchExpanded
+                  ? "bg-blue-100 text-blue-600"
+                  : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+              }`}
+              title={isSearchExpanded ? "Close search" : "Search papers"}
+              aria-label={isSearchExpanded ? "Close search" : "Search papers"}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Search bar */}
-      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-200 shrink-0">
-        <div className="flex-1">
+      {/* Search input row — visible when expanded, loading, or search is active */}
+      {(isSearchExpanded || isSearchLoading || isSearchActive) && (
+        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-200 shrink-0">
           <input
             ref={inputRef}
             type="text"
             defaultValue=""
             onKeyDown={handleSearchKeyDown}
             placeholder="Search papers…"
-            className="w-full text-sm border border-gray-300 rounded px-2.5 py-1.5 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200"
+            className="flex-1 text-sm border border-gray-300 rounded px-2.5 py-1.5 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200"
           />
+          <button
+            onClick={() => doSearch()}
+            disabled={isSearchLoading}
+            className="shrink-0 flex items-center justify-center w-8 h-8 rounded bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white transition-colors"
+            title="Search"
+            aria-label="Search"
+          >
+            {isSearchLoading ? (
+              <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            )}
+          </button>
         </div>
-        <button
-          onClick={() => doSearch()}
-          disabled={isSearchLoading}
-          className="shrink-0 flex items-center justify-center w-8 h-8 rounded bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white transition-colors"
-          title="Search"
-          aria-label="Search"
-        >
-          {isSearchLoading ? (
-            <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-            </svg>
-          ) : (
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-          )}
-        </button>
-      </div>
+      )}
 
       {/* Search active banner */}
       {isSearchActive && (
