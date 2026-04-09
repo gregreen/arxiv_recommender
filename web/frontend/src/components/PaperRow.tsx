@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { Recommendation } from "../api/types";
 import { scoreBar } from "./scoreColor";
 import { formatTimestamp } from "../utils";
@@ -9,7 +10,7 @@ interface PaperRowProps {
   onClick: () => void;
 }
 
-export default function PaperRow({ rec, selected, onClick }: PaperRowProps) {
+function PaperRow({ rec, selected, onClick }: PaperRowProps) {
   const scored = rec.score != null;
   const { pct, color } = scored ? scoreBar(rec.score!) : { pct: 0, color: "#d1d5db" };
 
@@ -41,3 +42,5 @@ export default function PaperRow({ rec, selected, onClick }: PaperRowProps) {
     </div>
   );
 }
+
+export default memo(PaperRow);

@@ -23,8 +23,9 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
   const [error, setError] = useState<string | null>(null);
   const [onboarding, setOnboarding] = useState(false);
 
-  // Search state
-  const [searchQuery, setSearchQuery] = useState("");
+  // Search state — committedQuery only updates on submit, never on keystroke,
+  // so typing does not re-render the paper list.
+  const [committedQuery, setCommittedQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Recommendation[]>([]);
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
@@ -58,9 +59,10 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
     return () => clearInterval(timer);
   }, [window, fetchRecs, isSearchActive]);
 
-  const doSearch = useCallback(async (query: string, win: TimeWindow) => {
-    const trimmed = query.trim();
+  const doSearch = useCallback(async (win: TimeWindow) => {
+    const trimmed = inputRef.current?.value.trim() ?? "";
     if (!trimmed) return;
+    setCommittedQuery(trimmed);
     setIsSearchLoading(true);
     setSearchError(null);
     try {
@@ -77,20 +79,21 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
 
   function clearSearch() {
     setIsSearchActive(false);
-    setSearchQuery("");
+    setCommittedQuery("");
     setSearchResults([]);
     setSearchError(null);
+    if (inputRef.current) inputRef.current.value = "";
   }
 
   function handleWindowChange(win: TimeWindow) {
     setWindow(win);
     if (isSearchActive) {
-      doSearch(searchQuery, win);
+      doSearch(win);
     }
   }
 
   function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") doSearch(searchQuery, window);
+    if (e.key === "Enter") doSearch(window);
     if (e.key === "Escape") clearSearch();
   }
 
@@ -131,8 +134,7 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
           <input
             ref={inputRef}
             type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            defaultValue=""
             onKeyDown={handleSearchKeyDown}
             placeholder="Search papers…"
             className="w-full text-sm border border-gray-300 rounded px-2.5 py-1.5 pr-7 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200"
@@ -149,8 +151,8 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
           )}
         </div>
         <button
-          onClick={() => doSearch(searchQuery, window)}
-          disabled={isSearchLoading || !searchQuery.trim()}
+          onClick={() => doSearch(window)}
+          disabled={isSearchLoading}
           className="shrink-0 flex items-center justify-center w-8 h-8 rounded bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white transition-colors"
           title="Search"
           aria-label="Search"
@@ -174,7 +176,7 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
         {/* Search mode result count */}
         {isSearchActive && searchResults.length > 0 && (
           <div className="text-xs text-gray-500 mb-2">
-            {searchResults.length} result{searchResults.length !== 1 ? "s" : ""} for &ldquo;{searchQuery}&rdquo;
+            {searchResults.length} result{searchResults.length !== 1 ? "s" : ""} for &ldquo;{committedQuery}&rdquo;
           </div>
         )}
 
