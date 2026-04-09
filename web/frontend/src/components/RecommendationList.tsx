@@ -127,25 +127,15 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
 
       {/* Search bar */}
       <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-200 shrink-0">
-        <div className="relative flex-1">
+        <div className="flex-1">
           <input
             ref={inputRef}
             type="text"
             defaultValue=""
             onKeyDown={handleSearchKeyDown}
             placeholder="Search papers…"
-            className="w-full text-sm border border-gray-300 rounded px-2.5 py-1.5 pr-7 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200"
+            className="w-full text-sm border border-gray-300 rounded px-2.5 py-1.5 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200"
           />
-          {isSearchActive && (
-            <button
-              onClick={clearSearch}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 text-lg leading-none"
-              title="Clear search"
-              aria-label="Clear search"
-            >
-              ×
-            </button>
-          )}
         </div>
         <button
           onClick={() => doSearch()}
@@ -168,12 +158,27 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
         </button>
       </div>
 
+      {/* Search active banner */}
+      {isSearchActive && (
+        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-blue-50 border-b border-blue-200 shrink-0">
+          <span className="text-sm text-blue-800 truncate">
+            Search: &ldquo;{committedQuery}&rdquo;
+          </span>
+          <button
+            onClick={clearSearch}
+            className="shrink-0 text-sm font-medium text-blue-600 hover:text-blue-800 whitespace-nowrap"
+          >
+            ← Back to recommendations
+          </button>
+        </div>
+      )}
+
       {/* List */}
       <div className="flex-1 overflow-y-auto p-3">
         {/* Search mode result count */}
         {isSearchActive && (searchResultsByWindow?.[window] ?? []).length > 0 && (
           <div className="text-xs text-gray-500 mb-2">
-            {(searchResultsByWindow![window]).length} result{(searchResultsByWindow![window]).length !== 1 ? "s" : ""} for &ldquo;{committedQuery}&rdquo;
+            {(searchResultsByWindow![window]).length} papers sorted by relevance to &ldquo;{committedQuery}&rdquo;
           </div>
         )}
 
@@ -199,7 +204,7 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
         {/* Onboarding (suppressed during search) */}
         {!isSearchActive && onboarding && (
           <div className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-3 mb-3">
-            Not enough data to generate recommendations yet. Mark papers as relevant or add papers to your Library.
+            Not enough data to generate recommendations yet. Mark at least 4 papers as relevant or add papers to your Library.
           </div>
         )}
 
