@@ -2,7 +2,7 @@
 App database helpers for app.db (SQLite, WAL mode).
 
 This module owns:
-  - Schema creation / migration (init_app_db)
+  - Schema creation (init_app_db)
   - Connection management (get_connection)
   - Task queue operations (enqueue_task, claim_next_task, complete_task, fail_task)
 
@@ -25,12 +25,17 @@ PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
 
 CREATE TABLE IF NOT EXISTS users (
-    id            INTEGER PRIMARY KEY,
-    email         TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    is_active     INTEGER NOT NULL DEFAULT 0,
-    is_admin      INTEGER NOT NULL DEFAULT 0,
-    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    id                          INTEGER PRIMARY KEY,
+    email                       TEXT UNIQUE NOT NULL,
+    password_hash               TEXT NOT NULL,
+    is_active                   INTEGER NOT NULL DEFAULT 0,
+    is_admin                    INTEGER NOT NULL DEFAULT 0,
+    email_verified              INTEGER NOT NULL DEFAULT 0,
+    email_verify_token          TEXT,
+    email_verify_token_expires_at TEXT,
+    email_verify_resend_count   INTEGER NOT NULL DEFAULT 0,
+    email_verify_next_resend_at TEXT,
+    created_at                  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Per-user arXiv category subscriptions (used by daily cron to decide what to ingest)
@@ -154,34 +159,10 @@ def init_app_db(path: str = APP_DB_PATH) -> None:
     Create all app.db tables if they do not already exist.
 
     Safe to call repeatedly (all DDL uses IF NOT EXISTS).
-    Also runs incremental column migrations for existing databases.
     """
     con = sqlite3.connect(path)
     try:
         con.executescript(_SCHEMA_SQL)
-        # Incremental migrations for existing databases
-        cols = {row[1] for row in con.execute("PRAGMA table_info(users)")}
-        if "is_active" not in cols:
-            # Existing users default to active so they aren't locked out
-            con.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
-        if "is_admin" not in cols:
-            con.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
-        if "email_verified" not in cols:
-            # Existing users are treated as already verified (no disruption)
-            con.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1")
-        if "email_verify_token" not in cols:
-            con.execute("ALTER TABLE users ADD COLUMN email_verify_token TEXT")
-        if "email_verify_token_expires_at" not in cols:
-            con.execute("ALTER TABLE users ADD COLUMN email_verify_token_expires_at TEXT")
-        if "email_verify_resend_count" not in cols:
-            con.execute("ALTER TABLE users ADD COLUMN email_verify_resend_count INTEGER NOT NULL DEFAULT 0")
-        if "email_verify_next_resend_at" not in cols:
-            con.execute("ALTER TABLE users ADD COLUMN email_verify_next_resend_at TEXT")
-        tq_cols = {row[1] for row in con.execute("PRAGMA table_info(task_queue)")}
-        if "priority" not in tq_cols:
-            con.execute("ALTER TABLE task_queue ADD COLUMN priority INTEGER NOT NULL DEFAULT 2")
-            con.execute("UPDATE task_queue SET priority = 2 WHERE type = 'embed' AND status = 'pending'")
-        con.commit()
     finally:
         con.close()
 

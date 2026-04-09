@@ -16,7 +16,6 @@ import numpy as np
 BASE_DIR             = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 EMBEDDING_CACHE_DB   = os.path.join(BASE_DIR, "embeddings_cache.db")
-EMBEDDING_CACHE_FILE = os.path.join(BASE_DIR, "embeddings_cache.npz")  # legacy; migration only
 APP_DB_PATH          = os.path.join(BASE_DIR, "app.db")
 SOURCE_CACHE_DIR     = os.path.join(BASE_DIR, "arxiv_source_cache")
 METADATA_CACHE_DIR   = os.path.join(BASE_DIR, "arxiv_metadata_cache")

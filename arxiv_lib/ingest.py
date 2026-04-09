@@ -32,7 +32,6 @@ import numpy as np
 
 from arxiv_lib.config import (
     EMBEDDING_CACHE_DB,
-    EMBEDDING_CACHE_FILE,
     EMBEDDING_STORAGE_DIM,
     APP_DB_PATH,
     METADATA_CACHE_DIR,
@@ -58,46 +57,21 @@ _embedding_db_initialized = False
 
 
 def _init_embedding_db() -> None:
-    """Create embedding tables if needed, run DB migrations, and auto-migrate from legacy .npz."""
+    """Create embedding tables if they do not already exist and enable WAL."""
     global _embedding_db_initialized
     if _embedding_db_initialized:
         return
-    con = sqlite3.connect(EMBEDDING_CACHE_DB)
-    try:
+    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
         con.execute("PRAGMA journal_mode=WAL")
-
-        # --- Migration: rename old 'embeddings' table to 'search_embeddings' ---
-        tables = {row[0] for row in con.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()}
-        if "search_embeddings" not in tables:
-            if "embeddings" in tables:
-                con.execute("ALTER TABLE embeddings RENAME TO search_embeddings")
-            else:
-                con.execute(
-                    "CREATE TABLE search_embeddings "
-                    "(arxiv_id TEXT PRIMARY KEY, vector BLOB NOT NULL)"
-                )
-            con.commit()
-
-        # --- Ensure recommendation_embeddings table exists ---
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS search_embeddings "
+            "(arxiv_id TEXT PRIMARY KEY, vector BLOB NOT NULL)"
+        )
         con.execute(
             "CREATE TABLE IF NOT EXISTS recommendation_embeddings "
             "(arxiv_id TEXT PRIMARY KEY, vector BLOB NOT NULL)"
         )
         con.commit()
-
-        # --- One-time migration from legacy .npz file (into search_embeddings) ---
-        if (os.path.exists(EMBEDDING_CACHE_FILE) and
-                con.execute("SELECT COUNT(*) FROM search_embeddings").fetchone()[0] == 0):
-            print(f"Migrating {EMBEDDING_CACHE_FILE} -> {EMBEDDING_CACHE_DB} ...")
-            data = np.load(EMBEDDING_CACHE_FILE, allow_pickle=False)
-            rows = [(k, data[k].astype(np.float32).tobytes()) for k in data.files]
-            con.executemany("INSERT OR IGNORE INTO search_embeddings VALUES (?, ?)", rows)
-            con.commit()
-            print(f"  Migrated {len(rows)} embeddings.")
-    finally:
-        con.close()
     _embedding_db_initialized = True
 
 
