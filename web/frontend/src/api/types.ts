@@ -49,3 +49,9 @@ export interface ImportResult {
 }
 
 export type TimeWindow = "day" | "week" | "month";
+
+export interface SearchResponse {
+  day: Recommendation[];
+  week: Recommendation[];
+  month: Recommendation[];
+}

@@ -1,3 +1,4 @@
+import { memo } from "react";
 import katex from "katex";
 
 // Split text into alternating plain/math segments.
@@ -31,7 +32,7 @@ interface MathTextProps {
   className?: string;
 }
 
-export default function MathText({ text, className }: MathTextProps) {
+function MathText({ text, className }: MathTextProps) {
   const tokens = tokenize(text);
   return (
     <span className={className}>
@@ -47,3 +48,5 @@ export default function MathText({ text, className }: MathTextProps) {
     </span>
   );
 }
+
+export default memo(MathText);

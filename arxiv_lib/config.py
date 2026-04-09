@@ -44,9 +44,16 @@ with open(os.path.join(BASE_DIR, "system_prompt_summary.txt")) as f:
 # Embedding
 # ---------------------------------------------------------------------------
 # Qwen3-Embedding-8B produces 4096-dim Matryoshka vectors.
-# Always store the FULL 4096-dim vector in the DB; truncate to EMBEDDING_DIM
-# only at scoring time.  Increasing EMBEDDING_DIM up to 128 is safe.
-EMBEDDING_DIM = 64
+# gen_arxiv_embedding truncates to EMBEDDING_STORAGE_DIM before returning.
+# We further truncate to EMBEDDING_DIM at scoring time.
+EMBEDDING_STORAGE_DIM = 512
+EMBEDDING_DIM = 512
+
+# Document embedding prompt template.  Supports {title}, {summary},
+# {abstract}, and {authors} placeholders.  Missing fields should be passed
+# as "Unavailable".
+with open(os.path.join(BASE_DIR, "summary_embedding_prompt.txt")) as f:
+    SUMMARY_EMBEDDING_PROMPT = f.read().strip()
 
 # ---------------------------------------------------------------------------
 # Scoring / recommendation

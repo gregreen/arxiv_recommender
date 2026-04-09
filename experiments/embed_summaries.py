@@ -310,7 +310,12 @@ def main() -> None:
             summary = f.read().strip()
 
         title   = id_to_title.get(arxiv_id, "")
-        prompt  = f"Title: {title}\n\n{summary}" if title else summary
+        prompt  = _config.SUMMARY_EMBEDDING_PROMPT.format(
+            title=title or "Unavailable",
+            abstract="Unavailable",
+            authors="Unavailable",
+            summary=summary or "Unavailable",
+        )
 
         n_tok = count_tokens(prompt)
         if n_tok > max_tok:

@@ -1,0 +1,9 @@
+[Unit]
+Description=arXiv Embedding DB Cleanup
+After=network.target
+
+[Service]
+Type=oneshot
+User=<user>
+WorkingDirectory=<project_dir>
+ExecStart=<project_dir>/.venv/bin/python3 scripts/cleanup_embeddings.py

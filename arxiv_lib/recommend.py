@@ -231,7 +231,8 @@ def get_or_train_model(
     background_vectors = _load_vectors(background_ids)
 
     # Validate training set
-    v_pos_list = [v for aid, v in liked_vectors.items()]
+    pos_ids_list = [aid for aid in liked_vectors]
+    v_pos_list = [liked_vectors[aid] for aid in pos_ids_list]
     if len(v_pos_list) < RECOMMEND_MIN_LIKED:
         raise NotEnoughDataError(
             f"Need at least {RECOMMEND_MIN_LIKED} liked papers with embeddings to train "
@@ -247,7 +248,7 @@ def get_or_train_model(
 
     v_pos = np.array(v_pos_list, dtype=np.float32)
     v_neg = np.array(list(neg_dict.values()), dtype=np.float32)
-    model = ScoringModel.from_training_data(v_pos, v_neg)
+    model = ScoringModel.from_training_data(v_pos, v_neg, positive_ids=pos_ids_list)
 
     # Persist the trained model
     con.execute(
@@ -269,15 +270,20 @@ def refresh_recommendations(
     model_hash: str,
 ) -> None:
     """
-    Score all embedded papers across all time windows and upsert the results
-    into the recommendations table.
+    Score all embedded papers across all time windows and replace the results
+    in the recommendations table.
 
     Liked papers are scored with score_positive_embeddings() (avoids
     self-similarity bias); all other papers use score_embeddings().
     """
-    # Load all papers that have both metadata and an embedding
+    # Pre-compute cutoffs and restrict paper loading to the earliest one
+    window_cutoffs = {w: _window_cutoff(w, con) for w in RECOMMEND_TIME_WINDOWS}
+    earliest_cutoff = min(window_cutoffs.values())
+
     papers = con.execute(
-        "SELECT arxiv_id, published_date FROM papers WHERE published_date IS NOT NULL"
+        "SELECT arxiv_id, published_date FROM papers "
+        "WHERE published_date IS NOT NULL AND published_date >= ?",
+        (earliest_cutoff,),
     ).fetchall()
     all_ids = [r[0] for r in papers]
     pub_dates = {r[0]: r[1] for r in papers}
@@ -289,12 +295,8 @@ def refresh_recommendations(
     # Keep only IDs that have both metadata and an embedding
     scoreable_ids = [aid for aid in all_ids if aid in all_vectors]
 
-    # Identify liked papers (use self-similarity-corrected scoring for them)
-    liked_rows = con.execute(
-        "SELECT arxiv_id FROM user_papers WHERE user_id = ? AND liked = 1",
-        (user_id,),
-    ).fetchall()
-    liked_set = {r[0] for r in liked_rows}
+    # Identify liked papers — use self-similarity-corrected scoring for them
+    liked_set = set(model.positive_ids)
 
     non_liked_ids = [aid for aid in scoreable_ids if aid not in liked_set]
     liked_scoreable = [aid for aid in scoreable_ids if aid in liked_set]
@@ -307,20 +309,25 @@ def refresh_recommendations(
             scores[aid] = float(sc)
 
     if liked_scoreable:
-        s_pos = model.score_positive_embeddings()
-        # score_positive_embeddings returns scores in the order of the training positives;
-        # we don't have a direct mapping, so fall back to score_embeddings for liked papers
-        # that happen to be scoreable (self-similarity bias is minor here).
-        v_liked = np.array([all_vectors[aid] for aid in liked_scoreable], dtype=np.float32)
-        s = model.score_embeddings(v_liked)
-        for aid, sc in zip(liked_scoreable, s):
-            scores[aid] = float(sc)
+        # score_positive_embeddings() returns scores in model.positive_ids order,
+        # correcting for self-similarity (diagonal → median replacement in RBF).
+        pos_scores = dict(zip(model.positive_ids, model.score_positive_embeddings()))
+        # Some liked papers may not have been in the training set (embedding
+        # was missing at train time).  Fall back to biased scoring for those only.
+        stragglers = [aid for aid in liked_scoreable if aid not in pos_scores]
+        for aid in liked_scoreable:
+            if aid in pos_scores:
+                scores[aid] = pos_scores[aid]
+        if stragglers:
+            v_stragglers = np.array([all_vectors[aid] for aid in stragglers], dtype=np.float32)
+            s = model.score_embeddings(v_stragglers)
+            for aid, sc in zip(stragglers, s):
+                scores[aid] = float(sc)
 
-    # Upsert recommendations for each time window
+    # Replace recommendations for each time window (DELETE then INSERT)
     generated_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    rows_to_insert = []
     for window in RECOMMEND_TIME_WINDOWS:
-        cutoff = _window_cutoff(window, con)
+        cutoff = window_cutoffs[window]
         window_ids = [
             aid for aid in scoreable_ids
             if aid in scores and pub_dates.get(aid, "") >= cutoff
@@ -329,17 +336,22 @@ def refresh_recommendations(
             continue
         window_scores = [(aid, scores[aid]) for aid in window_ids]
         window_scores.sort(key=lambda x: x[1], reverse=True)
-        for rank, (aid, score) in enumerate(window_scores, start=1):
-            rows_to_insert.append((user_id, aid, window, score, rank, model_hash, generated_at))
-
-    con.executemany(
-        """
-        INSERT OR REPLACE INTO recommendations
-            (user_id, arxiv_id, time_window, score, rank, model_hash, generated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        rows_to_insert,
-    )
+        rows_to_insert = [
+            (user_id, aid, window, score, rank, model_hash, generated_at)
+            for rank, (aid, score) in enumerate(window_scores, start=1)
+        ]
+        con.execute(
+            "DELETE FROM recommendations WHERE user_id = ? AND time_window = ?",
+            (user_id, window),
+        )
+        con.executemany(
+            """
+            INSERT INTO recommendations
+                (user_id, arxiv_id, time_window, score, rank, model_hash, generated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows_to_insert,
+        )
 
 
 def get_recommendations(
