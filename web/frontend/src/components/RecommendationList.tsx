@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getRecommendations } from "../api/recommendations";
 import { searchPapers } from "../api/search";
-import type { TimeWindow, Recommendation } from "../api/types";
+import type { TimeWindow, Recommendation, SearchResponse } from "../api/types";
 import PaperRow from "./PaperRow";
 
 interface RecommendationListProps {
@@ -26,7 +26,7 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
   // Search state — committedQuery only updates on submit, never on keystroke,
   // so typing does not re-render the paper list.
   const [committedQuery, setCommittedQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<Recommendation[]>([]);
+  const [searchResultsByWindow, setSearchResultsByWindow] = useState<SearchResponse | null>(null);
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -59,19 +59,19 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
     return () => clearInterval(timer);
   }, [window, fetchRecs, isSearchActive]);
 
-  const doSearch = useCallback(async (win: TimeWindow) => {
+  const doSearch = useCallback(async () => {
     const trimmed = inputRef.current?.value.trim() ?? "";
     if (!trimmed) return;
     setCommittedQuery(trimmed);
     setIsSearchLoading(true);
     setSearchError(null);
     try {
-      const data = await searchPapers(trimmed, win);
-      setSearchResults(data.results);
+      const data = await searchPapers(trimmed);
+      setSearchResultsByWindow(data);
       setIsSearchActive(true);
     } catch (err: unknown) {
       setSearchError(err instanceof Error ? err.message : "Search failed");
-      setSearchResults([]);
+      setSearchResultsByWindow(null);
     } finally {
       setIsSearchLoading(false);
     }
@@ -80,24 +80,21 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
   function clearSearch() {
     setIsSearchActive(false);
     setCommittedQuery("");
-    setSearchResults([]);
+    setSearchResultsByWindow(null);
     setSearchError(null);
     if (inputRef.current) inputRef.current.value = "";
   }
 
   function handleWindowChange(win: TimeWindow) {
     setWindow(win);
-    if (isSearchActive) {
-      doSearch(win);
-    }
   }
 
   function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") doSearch(window);
+    if (e.key === "Enter") doSearch();
     if (e.key === "Escape") clearSearch();
   }
 
-  const displayResults = isSearchActive ? searchResults : results;
+  const displayResults = isSearchActive ? (searchResultsByWindow?.[window] ?? []) : results;
 
   return (
     <div className="flex flex-col h-full">
@@ -151,7 +148,7 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
           )}
         </div>
         <button
-          onClick={() => doSearch(window)}
+          onClick={() => doSearch()}
           disabled={isSearchLoading}
           className="shrink-0 flex items-center justify-center w-8 h-8 rounded bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white transition-colors"
           title="Search"
@@ -174,9 +171,9 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
       {/* List */}
       <div className="flex-1 overflow-y-auto p-3">
         {/* Search mode result count */}
-        {isSearchActive && searchResults.length > 0 && (
+        {isSearchActive && (searchResultsByWindow?.[window] ?? []).length > 0 && (
           <div className="text-xs text-gray-500 mb-2">
-            {searchResults.length} result{searchResults.length !== 1 ? "s" : ""} for &ldquo;{committedQuery}&rdquo;
+            {(searchResultsByWindow![window]).length} result{(searchResultsByWindow![window]).length !== 1 ? "s" : ""} for &ldquo;{committedQuery}&rdquo;
           </div>
         )}
 
@@ -210,7 +207,7 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
         {!loading && !error && !onboarding && !isSearchActive && results.length === 0 && (
           <div className="text-sm text-gray-400 text-center mt-8">No recommendations yet.</div>
         )}
-        {isSearchActive && !isSearchLoading && !searchError && searchResults.length === 0 && (
+        {isSearchActive && !isSearchLoading && !searchError && (searchResultsByWindow?.[window] ?? []).length === 0 && (
           <div className="text-sm text-gray-400 text-center mt-8">No results found.</div>
         )}
 

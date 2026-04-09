@@ -51,6 +51,7 @@ export interface ImportResult {
 export type TimeWindow = "day" | "week" | "month";
 
 export interface SearchResponse {
-  count: number;
-  results: Recommendation[];
+  day: Recommendation[];
+  week: Recommendation[];
+  month: Recommendation[];
 }

@@ -3,10 +3,10 @@ Semantic search: embed a free-text query and rank papers by cosine similarity.
 
 Public API
 ----------
-search_papers(con, user_id, query, window, limit) -> list[dict]
+search_papers(con, user_id, query) -> dict[str, list[dict]]
     Embed *query* with the Instruct/Query prefix, compute cosine similarity
-    against all embedded papers in *window*, and return the top *limit*
-    papers sorted by descending similarity.
+    against all embedded papers across all time windows once, and return
+    per-window result lists sorted by descending similarity.
 """
 
 import json
@@ -20,6 +20,8 @@ from arxiv_lib.config import (
     API_KEYS,
     EMBEDDING_STORAGE_DIM,
     LLM_CONFIG,
+    ONBOARDING_BROWSE_LIMIT,
+    RECOMMEND_TIME_WINDOWS,
 )
 from arxiv_lib.recommend import _load_vectors, _window_cutoff
 
@@ -70,12 +72,16 @@ def search_papers(
     con: sqlite3.Connection,
     user_id: int,
     query: str,
-    window: str,
-    limit: int,
-) -> list[dict]:
+) -> dict[str, list[dict]]:
     """
-    Embed *query* and return up to *limit* papers from the given time window,
-    sorted by cosine similarity (descending).
+    Embed *query* and return per-window result lists sorted by cosine
+    similarity (descending).
+
+    The embedding is computed once and similarity scores are computed
+    against all papers whose published_date falls within the broadest
+    time window (month).  Results are then partitioned by the cutoff
+    of each time window, and the top ONBOARDING_BROWSE_LIMIT papers
+    are returned for each window.
 
     Parameters
     ----------
@@ -85,16 +91,13 @@ def search_papers(
         ID of the requesting user (used to populate the ``liked`` field).
     query : str
         Free-text search query.
-    window : str
-        Time window: "day", "week", or "month".
-    limit : int
-        Maximum number of results to return.
 
     Returns
     -------
-    list[dict]
-        Each dict has keys: arxiv_id, title, authors, published_date,
-        score (cosine similarity), rank, liked, generated_at.
+    dict[str, list[dict]]
+        Keys are RECOMMEND_TIME_WINDOWS ("day", "week", "month").  Each
+        value is a list of dicts with keys: arxiv_id, title, authors,
+        published_date, score (cosine similarity), rank, liked, generated_at.
 
     Raises
     ------
@@ -103,35 +106,33 @@ def search_papers(
     """
     query_vec = _embed_query(query)
 
-    # Collect paper IDs in the requested time window.
-    cutoff = _window_cutoff(window, con)
+    # Load all papers within the broadest window (month).
+    window_cutoffs = {w: _window_cutoff(w, con) for w in RECOMMEND_TIME_WINDOWS}
+    earliest_cutoff = min(window_cutoffs.values())
     rows = con.execute(
-        "SELECT arxiv_id FROM papers "
+        "SELECT arxiv_id, published_date FROM papers "
         "WHERE published_date >= ? AND published_date IS NOT NULL",
-        (cutoff,),
+        (earliest_cutoff,),
     ).fetchall()
-    window_ids = [r[0] for r in rows]
-    if not window_ids:
-        return []
+    if not rows:
+        return {w: [] for w in RECOMMEND_TIME_WINDOWS}
 
-    # Load embedding vectors for those papers.
-    vectors = _load_vectors(window_ids)
+    all_ids = [r[0] for r in rows]
+    pub_dates = {r[0]: r[1] for r in rows}
+
+    # Load embedding vectors and compute cosine similarity once.
+    vectors = _load_vectors(all_ids)
     if not vectors:
-        return []
+        return {w: [] for w in RECOMMEND_TIME_WINDOWS}
 
-    # Compute cosine similarities.
     ids    = list(vectors.keys())
-    matrix = np.stack([vectors[aid] for aid in ids])          # (N, D)
-    q      = query_vec[:matrix.shape[1]]                       # align dims
-    sims   = 3*np.log(np.clip(_cosine_similarity(q, matrix), 1e-12, 1.0))
+    matrix = np.stack([vectors[aid] for aid in ids])   # (N, D)
+    q      = query_vec[:matrix.shape[1]]                # align dims
+    sims   = 3 * np.log(np.clip(_cosine_similarity(q, matrix), 1e-12, 1.0))
+    scores = dict(zip(ids, sims.tolist()))
 
-    top_n   = min(limit, len(ids))
-    indices = np.argsort(sims)[::-1][:top_n]
-    top_ids  = [ids[i] for i in indices]
-    top_sims = [float(sims[i]) for i in indices]
-
-    # Fetch metadata + liked status from app.db in one query.
-    placeholders = ",".join("?" * len(top_ids))
+    # Fetch metadata + liked status for all candidate papers.
+    placeholders = ",".join("?" * len(ids))
     meta_rows = con.execute(
         f"""
         SELECT p.arxiv_id, p.title, p.authors, p.published_date,
@@ -141,7 +142,7 @@ def search_papers(
                  ON ul.arxiv_id = p.arxiv_id AND ul.user_id = ?
          WHERE p.arxiv_id IN ({placeholders})
         """,
-        [user_id] + top_ids,
+        [user_id] + ids,
     ).fetchall()
 
     meta: dict[str, dict] = {}
@@ -157,19 +158,29 @@ def search_papers(
             "liked":          liked,
         }
 
-    # Build result list preserving similarity rank order.
-    results = []
-    for rank, (aid, score) in enumerate(zip(top_ids, top_sims), 1):
-        m = meta.get(aid, {})
-        results.append({
-            "arxiv_id":       aid,
-            "title":          m.get("title", ""),
-            "authors":        m.get("authors", []),
-            "published_date": m.get("published_date"),
-            "score":          score,
-            "rank":           rank,
-            "liked":          m.get("liked"),
-            "generated_at":   None,
-        })
+    # Sort all papers by score descending, then partition per window.
+    sorted_ids = sorted(ids, key=lambda aid: scores[aid], reverse=True)
 
-    return results
+    result: dict[str, list[dict]] = {}
+    for window in RECOMMEND_TIME_WINDOWS:
+        cutoff = window_cutoffs[window]
+        window_papers = [
+            aid for aid in sorted_ids
+            if pub_dates.get(aid, "") >= cutoff
+        ][:ONBOARDING_BROWSE_LIMIT]
+        window_results = []
+        for rank, aid in enumerate(window_papers, 1):
+            m = meta.get(aid, {})
+            window_results.append({
+                "arxiv_id":       aid,
+                "title":          m.get("title", ""),
+                "authors":        m.get("authors", []),
+                "published_date": m.get("published_date"),
+                "score":          scores[aid],
+                "rank":           rank,
+                "liked":          m.get("liked"),
+                "generated_at":   None,
+            })
+        result[window] = window_results
+
+    return result
