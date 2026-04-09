@@ -24,7 +24,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
 from arxiv_lib.config import (
-    EMBEDDING_DIM,
+    RECOMMENDATION_EMBEDDING_DIM,
     RBF_GAMMAS,
     RBF_PCA_COMPONENTS,
     SCORING_VERSION,
@@ -320,6 +320,19 @@ class ScoringModel(object):
         )
         self.logistic_model.fit(features, y)
 
+        # Print regression coefficients for debugging
+        # Need to show both the max_sim and logsumexp features for each gamma
+        # and the full-space and residual features separately to understand what the model is doing.
+        # print("Logistic regression coefficients:")
+        # print('gamma  coeff_full  coeff_res')
+        # coeff_full = self.logistic_model.coef_[0, 0]
+        # coeff_res = self.logistic_model.coef_[0, 1+len(RBF_GAMMAS)]
+        # for i, gamma in enumerate(RBF_GAMMAS):
+        #     coeff_full = self.logistic_model.coef_[0, i+1]
+        #     coeff_res = self.logistic_model.coef_[0, i+2+len(RBF_GAMMAS)]
+        #     print(f'{np.log(gamma): >+5.2f}  {coeff_full: >+10.5f}  {coeff_res: >+10.5f}')
+        # print(f' inf   {coeff_full: >+10.5f}  {coeff_res: >+10.5f}')
+
         # Store positive vectors for later use in scoring
         self.positive_vectors = positive_vectors
     
@@ -481,7 +494,7 @@ def compute_model_hash(liked_ids: list[str], disliked_ids: list[str] = ()) -> st
     payload = (
         json.dumps(sorted(liked_ids))
         + json.dumps(sorted(disliked_ids))
-        + str(EMBEDDING_DIM)
+        + str(RECOMMENDATION_EMBEDDING_DIM)
         + SCORING_VERSION
     )
     return hashlib.sha256(payload.encode()).hexdigest()[:16]

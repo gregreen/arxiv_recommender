@@ -44,16 +44,25 @@ with open(os.path.join(BASE_DIR, "system_prompt_summary.txt")) as f:
 # Embedding
 # ---------------------------------------------------------------------------
 # Qwen3-Embedding-8B produces 4096-dim Matryoshka vectors.
-# gen_arxiv_embedding truncates to EMBEDDING_STORAGE_DIM before returning.
-# We further truncate to EMBEDDING_DIM at scoring time.
-EMBEDDING_STORAGE_DIM = 512
-EMBEDDING_DIM = 512
+# Embeddings are stored at EMBEDDING_STORAGE_DIM dimensions.
+# SEARCH_EMBEDDING_DIM: dimensions used at search time (higher = more precise).
+# RECOMMENDATION_EMBEDDING_DIM: dimensions used at recommendation scoring time.
+EMBEDDING_STORAGE_DIM       = 512
+SEARCH_EMBEDDING_DIM        = 512
+RECOMMENDATION_EMBEDDING_DIM = 128
 
-# Document embedding prompt template.  Supports {title}, {summary},
-# {abstract}, and {authors} placeholders.  Missing fields should be passed
-# as "Unavailable".
-with open(os.path.join(BASE_DIR, "summary_embedding_prompt.txt")) as f:
-    SUMMARY_EMBEDDING_PROMPT = f.read().strip()
+# Search embedding prompt template (used for semantic search queries).
+# Supports {title}, {summary}, {abstract}, and {authors} placeholders.
+# Missing fields should be passed as "Unavailable".
+with open(os.path.join(BASE_DIR, "search_embedding_prompt.txt")) as f:
+    SEARCH_EMBEDDING_PROMPT = f.read().strip()
+
+# Recommendation embedding prompt template (used for scoring/recommendations).
+with open(os.path.join(BASE_DIR, "recommendation_embedding_prompt.txt")) as f:
+    RECOMMENDATION_EMBEDDING_PROMPT = f.read().strip()
+
+# Deprecated alias — use SEARCH_EMBEDDING_PROMPT instead.
+SUMMARY_EMBEDDING_PROMPT = SEARCH_EMBEDDING_PROMPT
 
 # ---------------------------------------------------------------------------
 # Scoring / recommendation
@@ -61,7 +70,7 @@ with open(os.path.join(BASE_DIR, "summary_embedding_prompt.txt")) as f:
 # Bump SCORING_VERSION whenever the scoring algorithm changes in a way that
 # would make previously cached user models produce wrong results.  This
 # causes all cached models in user_models to be re-trained on next use.
-SCORING_VERSION = "v1"
+SCORING_VERSION = "v2"
 
 # RBF kernel: gammas are spaced logarithmically.
 RBF_GAMMAS = np.logspace(-6, 6, num=6, base=2)
@@ -141,7 +150,7 @@ LLM_CONFIG: dict[str, dict] = _load_json_file(LLM_CONFIG_FILE, "llm_config.json"
 # LLM / embedding model identifiers
 # ---------------------------------------------------------------------------
 # Model identity and provider settings live in llm_config.json.
-# EMBEDDING_DIM is an algorithm parameter and stays here.
+# SEARCH_EMBEDDING_DIM and RECOMMENDATION_EMBEDDING_DIM are algorithm parameters and stay here.
 
 # ---------------------------------------------------------------------------
 # arXiv categories

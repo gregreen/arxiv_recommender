@@ -85,22 +85,32 @@ def main() -> None:
     print(f"embeddings_cache.db  —  {size_before:,} bytes on disk")
 
     # ------------------------------------------------------------------
-    # Check for malformed rows
+    # Check for malformed rows across both tables
     # ------------------------------------------------------------------
     with sqlite3.connect(db_path) as con:
-        malformed_count = con.execute(
-            "SELECT COUNT(*) FROM embeddings WHERE length(vector) != ?",
-            (_EXPECTED_BYTES,),
-        ).fetchone()[0]
+        # Ensure tables exist (triggers migration if needed)
+        tables = {row[0] for row in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
 
-        print(f"\nExpected blob size : {_EXPECTED_BYTES} bytes "
-              f"({_config.EMBEDDING_STORAGE_DIM} dims × 4 bytes / float32)")
-        print(f"Malformed rows     : {malformed_count:,}")
+        total_malformed = 0
+        for table in _TABLES:
+            if table not in tables:
+                print(f"\nTable '{table}' not found — skipping.")
+                continue
+            count = con.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE length(vector) != ?",
+                (_EXPECTED_BYTES,),
+            ).fetchone()[0]
+            total_malformed += count
+            print(f"\n[{table}]")
+            print(f"  Expected blob size : {_EXPECTED_BYTES} bytes "
+                  f"({_config.EMBEDDING_STORAGE_DIM} dims × 4 bytes / float32)")
+            print(f"  Malformed rows     : {count:,}")
+            print("  Pre-cleanup stats:")
+            _print_stats(con, table)
 
-        print("\nPre-cleanup stats:")
-        _print_stats(con)
-
-    if malformed_count == 0:
+    if total_malformed == 0:
         print("\nNothing to clean up — database is already healthy.")
         sys.exit(0)
 
@@ -110,7 +120,7 @@ def main() -> None:
     if args.dry_run:
         print("\nDry run — no files will be written.")
         print(f"Would back up : {db_path}  →  {db_path}.bak.<timestamp>")
-        print(f"Would delete  : {malformed_count:,} malformed rows")
+        print(f"Would delete  : {total_malformed:,} malformed rows across both tables")
         print("Would VACUUM  : yes")
         sys.exit(0)
 
@@ -124,19 +134,31 @@ def main() -> None:
     print(f"  Backup written ({os.path.getsize(backup_path):,} bytes).")
 
     # ------------------------------------------------------------------
-    # Delete malformed rows
+    # Delete malformed rows from both tables
     # ------------------------------------------------------------------
     with sqlite3.connect(db_path) as con:
         con.execute("PRAGMA journal_mode=WAL")
-        deleted = con.execute(
-            "DELETE FROM embeddings WHERE length(vector) != ?",
-            (_EXPECTED_BYTES,),
-        ).rowcount
+        tables = {row[0] for row in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        total_deleted = 0
+        for table in _TABLES:
+            if table not in tables:
+                continue
+            deleted = con.execute(
+                f"DELETE FROM {table} WHERE length(vector) != ?",
+                (_EXPECTED_BYTES,),
+            ).rowcount
+            total_deleted += deleted
+            print(f"  Deleted {deleted:,} malformed rows from '{table}'.")
         con.commit()
-        print(f"\nDeleted {deleted:,} malformed rows.")
+        print(f"\nTotal deleted: {total_deleted:,} rows.")
 
-        print("\nPost-delete stats:")
-        _print_stats(con)
+        for table in _TABLES:
+            if table not in tables:
+                continue
+            print(f"\nPost-delete stats [{table}]:")
+            _print_stats(con, table)
 
     # ------------------------------------------------------------------
     # VACUUM (must run outside any active transaction)

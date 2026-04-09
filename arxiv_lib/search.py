@@ -22,8 +22,9 @@ from arxiv_lib.config import (
     LLM_CONFIG,
     ONBOARDING_BROWSE_LIMIT,
     RECOMMEND_TIME_WINDOWS,
+    SEARCH_EMBEDDING_DIM,
 )
-from arxiv_lib.recommend import _load_vectors, _window_cutoff
+from arxiv_lib.recommend import _window_cutoff
 
 # Instruct/Query prefix used when embedding search queries.
 # Matches the prefix used in experiments/query_summaries.py.
@@ -59,6 +60,30 @@ def _embed_query(query: str) -> np.ndarray:
         raise SearchEmbeddingError(f"Embedding API error: {exc}") from exc
 
     return np.array(result.data[0].embedding, dtype=np.float32)[:EMBEDDING_STORAGE_DIM]
+
+
+def _load_search_vectors(arxiv_ids: list[str]) -> dict[str, np.ndarray]:
+    """
+    Load search embeddings for the given arXiv IDs from embeddings_cache.db.
+
+    Returns a dict mapping arxiv_id → truncated float32 vector (length SEARCH_EMBEDDING_DIM).
+    IDs not found in the DB are silently omitted.
+    """
+    import sqlite3 as _sqlite3
+    from arxiv_lib.config import EMBEDDING_CACHE_DB
+    if not arxiv_ids:
+        return {}
+    placeholders = ",".join("?" * len(arxiv_ids))
+    vectors: dict[str, np.ndarray] = {}
+    with _sqlite3.connect(EMBEDDING_CACHE_DB) as emb_con:
+        rows = emb_con.execute(
+            f"SELECT arxiv_id, vector FROM search_embeddings WHERE arxiv_id IN ({placeholders})",
+            arxiv_ids,
+        ).fetchall()
+    for arxiv_id, blob in rows:
+        full = np.frombuffer(blob, dtype=np.float32)
+        vectors[arxiv_id] = full[:SEARCH_EMBEDDING_DIM]
+    return vectors
 
 
 def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -120,14 +145,14 @@ def search_papers(
     all_ids = [r[0] for r in rows]
     pub_dates = {r[0]: r[1] for r in rows}
 
-    # Load embedding vectors and compute cosine similarity once.
-    vectors = _load_vectors(all_ids)
+    # Load search embedding vectors and compute cosine similarity once.
+    vectors = _load_search_vectors(all_ids)
     if not vectors:
         return {w: [] for w in RECOMMEND_TIME_WINDOWS}
 
     ids    = list(vectors.keys())
     matrix = np.stack([vectors[aid] for aid in ids])   # (N, D)
-    q      = query_vec[:matrix.shape[1]]                # align dims
+    q      = query_vec[:SEARCH_EMBEDDING_DIM]           # align to search dim
     sims   = 3 * np.log(np.clip(_cosine_similarity(q, matrix), 1e-12, 1.0))
     scores = dict(zip(ids, sims.tolist()))
 
