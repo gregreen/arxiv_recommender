@@ -204,7 +204,8 @@ class ScoringModel(object):
         sigma_features: np.ndarray,
         mu_vectors: np.ndarray,
         sigma_vectors: np.ndarray,
-        positive_vectors: np.ndarray
+        positive_vectors: np.ndarray,
+        positive_ids: list[str] | None = None,
     ):
         self.logistic_model = logistic_model
         self.P_residual = residual_projection_matrix
@@ -213,10 +214,12 @@ class ScoringModel(object):
         self.mu_vectors = mu_vectors
         self.sigma_vectors = sigma_vectors
         self.positive_vectors = positive_vectors
+        self.positive_ids: list[str] = positive_ids or []
 
     @classmethod
     def from_training_data(cls, positive_vectors: np.ndarray,
-                                negative_vectors: np.ndarray) -> "ScoringModel":
+                                negative_vectors: np.ndarray,
+                                positive_ids: list[str] | None = None) -> "ScoringModel":
         """
         Train a ScoringModel from the given positive and negative embedding vectors.
 
@@ -226,6 +229,10 @@ class ScoringModel(object):
             Original (unscaled) embedding vectors for the positive (liked) papers.
         negative_vectors : np.ndarray, shape (N_neg, D)
             Original (unscaled) embedding vectors for the negative (disliked) papers.
+        positive_ids : list[str] | None
+            arXiv IDs corresponding to each row of *positive_vectors*, in the same
+            order.  When provided, score_positive_embeddings() results can be mapped
+            back to paper IDs without self-similarity bias.
         
         Returns
         -------
@@ -240,7 +247,8 @@ class ScoringModel(object):
             sigma_features=None,
             mu_vectors=None,
             sigma_vectors=None,
-            positive_vectors=None
+            positive_vectors=None,
+            positive_ids=list(positive_ids) if positive_ids is not None else [],
         )
         model.fit(positive_vectors, negative_vectors)
         return model
@@ -397,6 +405,7 @@ class ScoringModel(object):
             "mu_vectors": self.mu_vectors.tolist(),
             "sigma_vectors": self.sigma_vectors.tolist(),
             "positive_vectors": self.positive_vectors.tolist(),
+            "positive_ids": self.positive_ids,
         }
     
     @classmethod
@@ -421,7 +430,8 @@ class ScoringModel(object):
             sigma_features=np.array(data["sigma_features"]),
             mu_vectors=np.array(data["mu_vectors"]),
             sigma_vectors=np.array(data["sigma_vectors"]),
-            positive_vectors=np.array(data["positive_vectors"])
+            positive_vectors=np.array(data["positive_vectors"]),
+            positive_ids=data.get("positive_ids", []),
         )
 
 
