@@ -33,6 +33,7 @@ import numpy as np
 from arxiv_lib.config import (
     EMBEDDING_CACHE_DB,
     EMBEDDING_CACHE_FILE,
+    EMBEDDING_STORAGE_DIM,
     APP_DB_PATH,
     METADATA_CACHE_DIR,
     SOURCE_CACHE_DIR,
@@ -995,8 +996,8 @@ def gen_arxiv_embedding(
     Pipeline: fetch metadata → fetch/generate structured summary →
     build prompt → call embedding API.
 
-    The full 4096-dim vector is returned; truncate to EMBEDDING_DIM at
-    scoring time (do not store truncated vectors).
+    The returned vector is truncated to ``EMBEDDING_STORAGE_DIM`` dimensions
+    (float32). Further truncation to ``EMBEDDING_DIM`` happens at scoring time.
 
     Model, base URL, and token limits are read from LLM_CONFIG["embedding"]
     (llm_config.json).  *model* and *max_tokens* override the config values
@@ -1057,7 +1058,7 @@ def gen_arxiv_embedding(
     except Exception as e:
         raise RuntimeError(f"API Error during feature extraction: {e}")
 
-    return np.asarray(result.data[0].embedding, dtype=np.float32)
+    return np.asarray(result.data[0].embedding, dtype=np.float32)[:EMBEDDING_STORAGE_DIM]
 
 
 def fetch_arxiv_embedding(arxiv_id: str) -> np.ndarray:

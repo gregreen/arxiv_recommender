@@ -121,7 +121,9 @@ for unit_file in \
     arxiv-embed-daemon.service \
     arxiv-meta-daemon.service \
     arxiv-daily-ingest.service \
-    arxiv-daily-ingest.timer
+    arxiv-daily-ingest.timer \
+    arxiv-cleanup-embeddings.service \
+    arxiv-cleanup-embeddings.timer
 do
     sed \
         -e "s|<user>|$USER|g" \
@@ -155,7 +157,8 @@ systemctl enable \
     arxiv-recommender.service \
     arxiv-embed-daemon.service \
     arxiv-meta-daemon.service \
-    arxiv-daily-ingest.timer
+    arxiv-daily-ingest.timer \
+    arxiv-cleanup-embeddings.timer
 systemctl restart \
     arxiv-recommender.service \
     arxiv-embed-daemon.service \

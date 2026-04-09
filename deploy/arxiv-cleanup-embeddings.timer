@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily arXiv Embedding DB Cleanup Timer
+
+[Timer]
+OnCalendar=Mon,Tue,Wed,Thu,Fri,Sat,Sun *-*-* 03:00:00
+Timezone=America/New_York
+Persistent=true
+Unit=arxiv-cleanup-embeddings.service
+
+[Install]
+WantedBy=timers.target
