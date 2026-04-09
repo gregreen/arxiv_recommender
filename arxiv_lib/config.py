@@ -48,7 +48,7 @@ with open(os.path.join(BASE_DIR, "system_prompt_summary.txt")) as f:
 # RECOMMENDATION_EMBEDDING_DIM: dimensions used at recommendation scoring time.
 EMBEDDING_STORAGE_DIM       = 512
 SEARCH_EMBEDDING_DIM        = 512
-RECOMMENDATION_EMBEDDING_DIM = 128
+RECOMMENDATION_EMBEDDING_DIM = 512
 
 # Search embedding prompt template (used for semantic search queries).
 # Supports {title}, {summary}, {abstract}, and {authors} placeholders.
@@ -59,9 +59,6 @@ with open(os.path.join(BASE_DIR, "search_embedding_prompt.txt")) as f:
 # Recommendation embedding prompt template (used for scoring/recommendations).
 with open(os.path.join(BASE_DIR, "recommendation_embedding_prompt.txt")) as f:
     RECOMMENDATION_EMBEDDING_PROMPT = f.read().strip()
-
-# Deprecated alias — use SEARCH_EMBEDDING_PROMPT instead.
-SUMMARY_EMBEDDING_PROMPT = SEARCH_EMBEDDING_PROMPT
 
 # ---------------------------------------------------------------------------
 # Scoring / recommendation
