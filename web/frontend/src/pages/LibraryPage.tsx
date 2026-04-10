@@ -135,7 +135,7 @@ export default function LibraryPage() {
   return (
     <div className="flex flex-col h-screen overflow-x-hidden bg-gray-50">
       {/* Navbar */}
-      <nav className="flex items-center gap-4 px-4 py-2 bg-white border-b border-gray-200 shrink-0">
+      <nav className="flex items-center gap-4 px-4 py-2 border-b border-blue-200 shrink-0" style={{background: "linear-gradient(42deg, #ebf5ff, #91caff)"}}>
         <Link to="/" className="font-bold text-blue-700 text-lg">arXiv Recommender</Link>
         <span className="text-sm text-gray-600 font-medium">Library</span>
         <NavMenu email={user?.email} onLogout={handleLogout} />
