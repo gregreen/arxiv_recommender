@@ -135,7 +135,7 @@ export default function AboutPage() {
             <p className="text-base leading-relaxed">
               The{" "}
               <span className="font-bold text-blue-700">arXiv Recommender</span>{" "}
-              passes the full LaTeX source of every arXiv paper to an LLM (<a href="https://huggingface.co/Qwen/Qwen3.5-35B-A3B-Base" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Qwen3.5-35B-A17B</a>), which distills it
+              passes the full LaTeX source of every arXiv paper to an LLM (<a href="https://huggingface.co/Qwen/Qwen3.5-35B-A3B-Base" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Qwen3.5-35B-A3B</a>), which distills it
               into a short, structured summary:
             </p>
           </div>
