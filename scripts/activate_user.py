@@ -79,11 +79,12 @@ def cmd_delete(con, email):
     with con:
         counts = {}
         for table, clause in [
-            ("recommendations",  "WHERE user_id = ?"),
-            ("user_models",       "WHERE user_id = ?"),
-            ("user_import_log",   "WHERE user_id = ?"),
-            ("user_papers",       "WHERE user_id = ?"),
-            ("user_categories",   "WHERE user_id = ?"),
+            ("recommendations",    "WHERE user_id = ?"),
+            ("user_models",        "WHERE user_id = ?"),
+            ("user_import_log",    "WHERE user_id = ?"),
+            ("user_papers",        "WHERE user_id = ?"),
+            ("user_categories",    "WHERE user_id = ?"),
+            ("user_search_terms",  "WHERE user_id = ?"),
         ]:
             cur = con.execute(f"DELETE FROM {table} {clause}", (user_id,))
             counts[table] = cur.rowcount
