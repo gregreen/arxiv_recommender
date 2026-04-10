@@ -176,6 +176,15 @@ export default function AboutPage() {
             This summary, combined with metadata, is then passed to an Embedding LLM (<a href="https://huggingface.co/Qwen/Qwen3-Embedding-8B" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Qwen3-Embedding-8B</a>), which converts the paper into a high-dimensional vector representing its subject and content. Similar papers will be converted into similar vectors. The recommendation algorithm uses these vector embeddings to predict which new papers you will find interesting.
           </p>
         </div>
+
+        <div className="max-w-2xl lg:max-w-4xl mx-auto w-full flex flex-col lg:flex-row lg:items-center lg:gap-6">
+          <div className="w-full lg:flex-1">
+            <img src="/embedding_space.svg" alt="Embedding space visualisation" className="w-full h-auto" />
+          </div>
+          <p className="w-full text-sm text-gray-600 lg:w-52 lg:flex-shrink-0">
+            <span className="font-bold">Paper embeddings</span>: Each paper is embedded into a high-dimensional vector space, based on its meaning and content. Here, we plot a low-dimensional visualization of the embedding. <span className="font-semibold text-gray-500">Gray</span> dots show random <span className="font-mono whitespace-nowrap">astro-ph</span> papers, tracing the astrophysics research landscape. Selected papers, highlighted in <span className="font-semibold text-blue-600">blue</span>, show that similar papers are positioned close together. We can also embed search terms (<span className="font-semibold text-green-600">green</span>) into the same space in order to retrieve relevant papers.
+          </p>
+        </div>
       </main>
     </div>
   );
