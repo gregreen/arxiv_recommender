@@ -9,6 +9,7 @@ import AdminLayout from "./pages/AdminLayout";
 import AdminUsersPage from "./pages/AdminUsersPage";
 import AdminTasksPage from "./pages/AdminTasksPage";
 import AdminPapersPage from "./pages/AdminPapersPage";
+import AboutPage from "./pages/AboutPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -61,6 +62,7 @@ export default function App() {
           <Route path="tasks"   element={<AdminTasksPage />} />
           <Route path="papers"  element={<AdminPapersPage />} />
         </Route>
+        <Route path="/about" element={<AboutPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

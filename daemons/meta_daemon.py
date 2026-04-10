@@ -41,11 +41,12 @@ from arxiv_lib.appdb import (
     init_app_db,
 )
 from arxiv_lib.config import (
+    API_KEYS,
     APP_DB_PATH,
     INGEST_META_BATCH_SIZE,
     META_INGEST_POLL_INTERVAL,
 )
-from arxiv_lib.ingest import get_arxiv_metadata, load_tokens
+from arxiv_lib.ingest import get_arxiv_metadata
 
 logging.basicConfig(
     level=logging.INFO,
@@ -70,7 +71,7 @@ def _paper_has_metadata(app_con, arxiv_id: str) -> bool:
 # Core batch processor
 # ---------------------------------------------------------------------------
 
-def process_meta_batch(app_con, tokens: dict) -> bool:
+def process_meta_batch(app_con) -> bool:
     """
     Claim and process one batch of 'fetch_meta' tasks.
 
@@ -93,7 +94,7 @@ def process_meta_batch(app_con, tokens: dict) -> bool:
 
     if needs_fetch:
         try:
-            get_arxiv_metadata(needs_fetch, s2_token=tokens.get("semantic_scholar"))
+            get_arxiv_metadata(needs_fetch, s2_token=API_KEYS.get("semantic_scholar"))
         except Exception:
             # Log but continue — we check per-paper below; partial success is fine.
             log.error("  Metadata fetch raised an exception:\n%s", traceback.format_exc())
@@ -138,12 +139,11 @@ def main() -> int:
 
     log.info("Starting meta daemon (db=%s)", args.db)
     init_app_db(args.db)
-    tokens = load_tokens()
 
     app_con = get_connection(args.db)
     try:
         while True:
-            found = process_meta_batch(app_con, tokens)
+            found = process_meta_batch(app_con)
             if args.once:
                 if not found:
                     log.info("Queue empty — nothing to do.")

@@ -52,7 +52,7 @@ export default function MainLayout() {
   return (
     <div className="flex flex-col h-screen overflow-x-hidden bg-gray-50">
       {/* Navbar */}
-      <nav className="flex items-center gap-4 px-4 py-2 bg-white border-b border-gray-200 shrink-0">
+      <nav className="flex items-center gap-4 px-4 py-2 border-b border-blue-200 shrink-0" style={{background: "linear-gradient(42deg, #ebf5ff, #91caff)"}}>
         <span className="font-bold text-blue-700 text-lg">arXiv Recommender</span>
         <Link
           to="/library"
@@ -60,6 +60,7 @@ export default function MainLayout() {
         >
           Library
         </Link>
+        <Link to="/about" className="hidden md:inline text-sm text-gray-600 hover:text-gray-900">About</Link>
         <NavMenu email={user?.email} onLogout={handleLogout} />
       </nav>
 

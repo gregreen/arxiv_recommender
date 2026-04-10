@@ -41,7 +41,7 @@ from arxiv_lib.config import (
     EMBEDDING_CACHE_DB,
     EMBED_INGEST_POLL_INTERVAL,
 )
-from arxiv_lib.ingest import fetch_arxiv_embedding
+from arxiv_lib.ingest import fetch_search_embedding, fetch_recommendation_embedding
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,7 +56,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _paper_already_ingested(app_con: sqlite3.Connection, arxiv_id: str) -> bool:
-    """Return True if the paper exists in both the papers table and the embedding DB."""
+    """Return True if the paper exists in the papers table and both embedding tables."""
     in_papers = app_con.execute(
         "SELECT 1 FROM papers WHERE arxiv_id = ?", (arxiv_id,)
     ).fetchone() is not None
@@ -65,11 +65,14 @@ def _paper_already_ingested(app_con: sqlite3.Connection, arxiv_id: str) -> bool:
         return False
 
     with sqlite3.connect(EMBEDDING_CACHE_DB) as emb_con:
-        in_embeddings = emb_con.execute(
-            "SELECT 1 FROM embeddings WHERE arxiv_id = ?", (arxiv_id,)
+        in_search = emb_con.execute(
+            "SELECT 1 FROM search_embeddings WHERE arxiv_id = ?", (arxiv_id,)
+        ).fetchone() is not None
+        in_recommendation = emb_con.execute(
+            "SELECT 1 FROM recommendation_embeddings WHERE arxiv_id = ?", (arxiv_id,)
         ).fetchone() is not None
 
-    return in_embeddings
+    return in_search and in_recommendation
 
 
 # ---------------------------------------------------------------------------
@@ -101,8 +104,9 @@ def process_one_task(app_con: sqlite3.Connection) -> bool:
             app_con.commit()
             return True
 
-        # Summarise (LLM) → embed → save to embeddings_cache.db
-        fetch_arxiv_embedding(arxiv_id)
+        # Summarise (LLM) → embed (both types) → save to embeddings_cache.db
+        fetch_search_embedding(arxiv_id)
+        fetch_recommendation_embedding(arxiv_id)
 
         complete_task(app_con, task_id)
         app_con.commit()

@@ -32,7 +32,6 @@ import numpy as np
 
 from arxiv_lib.config import (
     EMBEDDING_CACHE_DB,
-    EMBEDDING_CACHE_FILE,
     EMBEDDING_STORAGE_DIM,
     APP_DB_PATH,
     METADATA_CACHE_DIR,
@@ -44,7 +43,8 @@ from arxiv_lib.config import (
     API_KEYS,
     LLM_CONFIG,
     SUMMARIZE_SYSTEM_PROMPT,
-    SUMMARY_EMBEDDING_PROMPT,
+    SEARCH_EMBEDDING_PROMPT,
+    RECOMMENDATION_EMBEDDING_PROMPT
 )
 
 
@@ -56,46 +56,66 @@ _embedding_db_initialized = False
 
 
 def _init_embedding_db() -> None:
-    """Create the embeddings table if needed, enable WAL, and auto-migrate from legacy .npz."""
+    """Create embedding tables if they do not already exist and enable WAL."""
     global _embedding_db_initialized
     if _embedding_db_initialized:
         return
-    con = sqlite3.connect(EMBEDDING_CACHE_DB)
-    try:
+    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
         con.execute("PRAGMA journal_mode=WAL")
         con.execute(
-            "CREATE TABLE IF NOT EXISTS embeddings "
+            "CREATE TABLE IF NOT EXISTS search_embeddings "
             "(arxiv_id TEXT PRIMARY KEY, vector BLOB NOT NULL)"
         )
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS recommendation_embeddings "
+            "(arxiv_id TEXT PRIMARY KEY, vector BLOB NOT NULL)"
+        )
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS search_term_embeddings "
+            "(query TEXT PRIMARY KEY, vector BLOB NOT NULL)"
+        )
         con.commit()
-        # One-time migration from legacy .npz file
-        if (os.path.exists(EMBEDDING_CACHE_FILE) and
-                con.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0] == 0):
-            print(f"Migrating {EMBEDDING_CACHE_FILE} -> {EMBEDDING_CACHE_DB} ...")
-            data = np.load(EMBEDDING_CACHE_FILE, allow_pickle=False)
-            rows = [(k, data[k].astype(np.float32).tobytes()) for k in data.files]
-            con.executemany("INSERT OR IGNORE INTO embeddings VALUES (?, ?)", rows)
-            con.commit()
-            print(f"  Migrated {len(rows)} embeddings.")
-    finally:
-        con.close()
     _embedding_db_initialized = True
 
 
-def load_embedding_cache() -> dict[str, np.ndarray]:
-    """Load all embeddings from the cache DB. Returns a dict mapping arXiv ID to embedding vector."""
+def store_search_term_embedding(query: str, vector: np.ndarray) -> None:
+    """Upsert a search-query embedding into search_term_embeddings."""
+    _init_embedding_db()
+    blob = vector.astype(np.float32).tobytes()
+    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+        con.execute(
+            "INSERT OR REPLACE INTO search_term_embeddings VALUES (?, ?)",
+            (query, blob),
+        )
+
+
+def load_search_term_embedding(query: str) -> "np.ndarray | None":
+    """Return the cached embedding for *query*, or None if not found."""
     _init_embedding_db()
     with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
-        rows = con.execute("SELECT arxiv_id, vector FROM embeddings").fetchall()
+        row = con.execute(
+            "SELECT vector FROM search_term_embeddings WHERE query = ?",
+            (query,),
+        ).fetchone()
+    if row is None:
+        return None
+    return np.frombuffer(row[0], dtype=np.float32).copy()
+
+
+def load_embedding_cache() -> dict[str, np.ndarray]:
+    """Load all search embeddings from the cache DB. Returns a dict mapping arXiv ID to embedding vector."""
+    _init_embedding_db()
+    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+        rows = con.execute("SELECT arxiv_id, vector FROM search_embeddings").fetchall()
     return {aid: np.frombuffer(blob, dtype=np.float32) for aid, blob in rows}
 
 
 def save_embedding_cache(cache: dict[str, np.ndarray]) -> None:
-    """Bulk-upsert a dict of embeddings into the cache DB."""
+    """Bulk-upsert a dict of search embeddings into the cache DB."""
     _init_embedding_db()
     rows = [(aid, vec.astype(np.float32).tobytes()) for aid, vec in cache.items()]
     with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
-        con.executemany("INSERT OR REPLACE INTO embeddings VALUES (?, ?)", rows)
+        con.executemany("INSERT OR REPLACE INTO search_embeddings VALUES (?, ?)", rows)
 
 
 # ---------------------------------------------------------------------------
@@ -407,7 +427,7 @@ def fetch_arxiv_metadata_s2(
 
     for start in range(0, len(arxiv_ids), S2_BATCH_SIZE):
         chunk  = arxiv_ids[start: start + S2_BATCH_SIZE]
-        s2_ids = [f"arXiv:{aid}" for aid in chunk]
+        s2_ids = [f"ARXIV:{aid}" for aid in chunk]
 
         try:
             resp = _post_chunk(s2_ids)
@@ -985,28 +1005,27 @@ def summarize_arxiv_paper(
 # Embedding generation
 # ---------------------------------------------------------------------------
 
-def gen_arxiv_embedding(
+def _gen_embedding(
     arxiv_id: str,
+    prompt_template: str,
     model: str | None = None,
     max_tokens: int | None = None,
 ) -> np.ndarray:
     """
-    Generates an embedding vector for a given arXiv paper.
+    Generate an embedding vector for a given arXiv paper using *prompt_template*.
 
     Pipeline: fetch metadata → fetch/generate structured summary →
-    build prompt → call embedding API.
+    build prompt from template → call embedding API.
 
     The returned vector is truncated to ``EMBEDDING_STORAGE_DIM`` dimensions
-    (float32). Further truncation to ``EMBEDDING_DIM`` happens at scoring time.
-
-    Model, base URL, and token limits are read from LLM_CONFIG["embedding"]
-    (llm_config.json).  *model* and *max_tokens* override the config values
-    when provided.
+    (float32).
 
     Parameters
     ----------
     arxiv_id : str
         arXiv ID of the paper to embed (e.g. "2309.06676").
+    prompt_template : str
+        Template string with {title}, {abstract}, {authors}, {summary} placeholders.
     model : str | None
         Override the embedding model from llm_config.json.
     max_tokens : int | None
@@ -1015,7 +1034,7 @@ def gen_arxiv_embedding(
     Returns
     -------
     np.ndarray
-        The embedding vector for the given arXiv ID.
+        The embedding vector (float32, length EMBEDDING_STORAGE_DIM).
     """
     cfg       = LLM_CONFIG.get("embedding", {})
     _model    = model or cfg.get("model", "")
@@ -1033,7 +1052,7 @@ def gen_arxiv_embedding(
     summary = summarize_arxiv_paper(arxiv_id)
 
     authors_str = ", ".join(metadata["authors"]) or "Unavailable"
-    full_input = SUMMARY_EMBEDDING_PROMPT.format(
+    full_input = prompt_template.format(
         title=metadata["title"] or "Unavailable",
         abstract=metadata.get("abstract") or "Unavailable",
         authors=authors_str,
@@ -1061,35 +1080,70 @@ def gen_arxiv_embedding(
     return np.asarray(result.data[0].embedding, dtype=np.float32)[:EMBEDDING_STORAGE_DIM]
 
 
-def fetch_arxiv_embedding(arxiv_id: str) -> np.ndarray:
+def fetch_search_embedding(arxiv_id: str) -> np.ndarray:
     """
-    Returns the embedding vector for a given arXiv ID, using the local cache
-    when available and generating a new one otherwise.
+    Return the search embedding for *arxiv_id*, generating and caching it if needed.
 
-    Parameters
-    ----------
-    arxiv_id : str
-        arXiv ID of the paper to embed (e.g. "2309.06676").
-
-    Returns
-    -------
-    np.ndarray
-        The embedding vector for the given arXiv ID.
+    Uses SEARCH_EMBEDDING_PROMPT. Stored in the ``search_embeddings`` table.
     """
     _init_embedding_db()
     with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
         row = con.execute(
-            "SELECT vector FROM embeddings WHERE arxiv_id = ?", (arxiv_id,)
+            "SELECT vector FROM search_embeddings WHERE arxiv_id = ?", (arxiv_id,)
         ).fetchone()
         if row is not None:
             return np.frombuffer(row[0], dtype=np.float32)
 
-        vector = gen_arxiv_embedding(arxiv_id)
+        vector = _gen_embedding(arxiv_id, SEARCH_EMBEDDING_PROMPT)
         con.execute(
-            "INSERT OR REPLACE INTO embeddings VALUES (?, ?)",
+            "INSERT OR REPLACE INTO search_embeddings VALUES (?, ?)",
             (arxiv_id, vector.astype(np.float32).tobytes()),
         )
     return vector
+
+
+def fetch_recommendation_embedding(arxiv_id: str) -> np.ndarray:
+    """
+    Return the recommendation embedding for *arxiv_id*, generating and caching it if needed.
+
+    Uses RECOMMENDATION_EMBEDDING_PROMPT. Stored in the ``recommendation_embeddings`` table.
+    """
+    _init_embedding_db()
+    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+        row = con.execute(
+            "SELECT vector FROM recommendation_embeddings WHERE arxiv_id = ?", (arxiv_id,)
+        ).fetchone()
+        if row is not None:
+            return np.frombuffer(row[0], dtype=np.float32)
+
+        vector = _gen_embedding(arxiv_id, RECOMMENDATION_EMBEDDING_PROMPT)
+        con.execute(
+            "INSERT OR REPLACE INTO recommendation_embeddings VALUES (?, ?)",
+            (arxiv_id, vector.astype(np.float32).tobytes()),
+        )
+    return vector
+
+
+def gen_arxiv_embedding(
+    arxiv_id: str,
+    model: str | None = None,
+    max_tokens: int | None = None,
+) -> np.ndarray:
+    """
+    Deprecated. Generates a search embedding for the given arXiv paper.
+
+    Use ``fetch_search_embedding`` instead.
+    """
+    return _gen_embedding(arxiv_id, SEARCH_EMBEDDING_PROMPT, model=model, max_tokens=max_tokens)
+
+
+def fetch_arxiv_embedding(arxiv_id: str) -> np.ndarray:
+    """
+    Deprecated. Returns the search embedding for *arxiv_id*.
+
+    Use ``fetch_search_embedding`` instead.
+    """
+    return fetch_search_embedding(arxiv_id)
 
 
 def embed_arxiv_ids(
@@ -1120,7 +1174,8 @@ def embed_arxiv_ids(
     vectors = {}
     for aid in tqdm(arxiv_ids):
         print(f"Processing {aid}...")
-        vectors[aid] = fetch_arxiv_embedding(aid, **kwargs)
+        vectors[aid] = fetch_search_embedding(aid)
+        fetch_recommendation_embedding(aid)
     return vectors
 
 

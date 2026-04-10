@@ -35,6 +35,11 @@ import matplotlib
 # matplotlib.use("Agg")  # non-interactive backend; works without a display
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+plt.rcParams['text.usetex'] = True
+
+from pylatexenc.latexencode import unicode_to_latex
+
+from tqdm.auto import tqdm
 
 from arxiv_lib.config import EMBEDDING_CACHE_DB, APP_DB_PATH
 
@@ -44,9 +49,9 @@ _EXPERIMENTS_DIR = os.path.dirname(os.path.abspath(__file__))
 def load_embeddings() -> tuple[list[str], np.ndarray]:
     """Return (arxiv_ids, matrix) for all embeddings in the DB."""
     with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
-        rows = con.execute("SELECT arxiv_id, vector FROM embeddings ORDER BY arxiv_id").fetchall()
+        rows = con.execute("SELECT arxiv_id, vector FROM recommendation_embeddings ORDER BY arxiv_id").fetchall()
     if not rows:
-        print("No embeddings found in the database.", file=sys.stderr)
+        print("No recommendation embeddings found in the database.", file=sys.stderr)
         sys.exit(1)
     arxiv_ids = [r[0] for r in rows]
     matrix = np.stack(
@@ -114,9 +119,29 @@ def main() -> None:
         default=None,
         help="Output file path (default: umap_plot.png in experiments/).",
     )
+    parser.add_argument(
+        "--label-ids",
+        default=None,
+        nargs="+",
+        help="List of arXiv IDs to label on the plot (default: None)."
+    )
+    parser.add_argument(
+        "--embed-search-terms",
+        nargs="+",
+        default=None,
+        help="List of search terms to embed and plot alongside the papers (default: None)."
+    )
     args = parser.parse_args()
 
     out_path = os.path.abspath(args.out) if args.out else os.path.join(_EXPERIMENTS_DIR, "umap_plot.svg")
+
+    # Embed search terms if provided
+    if args.embed_search_terms:
+        from arxiv_lib.search import _embed_query
+        print("Embedding search terms...")
+        search_vecs = np.stack([
+            _embed_query(term) for term in args.embed_search_terms
+        ], axis=0)
 
     # ------------------------------------------------------------------
     # Load embeddings
@@ -147,7 +172,12 @@ def main() -> None:
     # ------------------------------------------------------------------
     print("Loading paper titles for annotation sample...")
     rng = np.random.default_rng(seed=42)
-    sample_indices = rng.choice(len(arxiv_ids), size=min(64, len(arxiv_ids)), replace=False)
+
+    if args.label_ids:
+        sample_indices = [i for i, aid in enumerate(arxiv_ids) if aid in args.label_ids]
+    else:
+        sample_indices = rng.choice(len(arxiv_ids), size=min(256, len(arxiv_ids)), replace=False)
+
     sample_ids = [arxiv_ids[i] for i in sample_indices]
     id_to_title: dict[str, str] = {}
     with sqlite3.connect(APP_DB_PATH) as con:
@@ -167,60 +197,85 @@ def main() -> None:
         n_components=2,
         n_neighbors=args.n_neighbors,
         min_dist=args.min_dist,
-        metric="cosine",
+        metric="euclidean",
         random_state=42,
         verbose=True,
     )
     embedding_2d = reducer.fit_transform(matrix)
     print("UMAP complete.")
 
+    if args.embed_search_terms:
+        search_terms_2d = reducer.transform(search_vecs)
+
     # ------------------------------------------------------------------
     # Plot
     # ------------------------------------------------------------------
-    cmap = cm.get_cmap("tab20", n_cats)
-    fig, ax = plt.subplots(figsize=(12, 9))
+    # cmap = cm.get_cmap("tab20", n_cats)
+    fig, ax = plt.subplots(figsize=(6, 6))
 
-    for i, cat in enumerate(unique_cats):
-        mask = color_idxs == i
+    # Scatterplot of all non-highlighted papers (gray) and highlighted papers (blue)
+    idx = np.zeros(len(arxiv_ids), dtype=bool)
+    idx[sample_indices] = True
+    ax.scatter(
+        embedding_2d[idx, 0],
+        embedding_2d[idx, 1],
+        s=9,
+        alpha=0.9,
+        color='b'
+    )
+    ax.scatter(
+        embedding_2d[~idx, 0],
+        embedding_2d[~idx, 1],
+        s=6,
+        alpha=0.3,
+        color='k',
+        edgecolors='none'
+    )
+
+    if args.embed_search_terms:
         ax.scatter(
-            embedding_2d[mask, 0],
-            embedding_2d[mask, 1],
-            s=4,
-            alpha=0.6,
-            color=cmap(i),
-            label=f"{cat} ({mask.sum()})",
-            linewidths=0,
+            search_terms_2d[:, 0],
+            search_terms_2d[:, 1],
+            s=36,
+            alpha=0.4,
+            color='g',
+            edgecolors='none',
         )
+        for i, term in enumerate(args.embed_search_terms):
+            x, y = search_terms_2d[i, 0], search_terms_2d[i, 1]
+            ax.annotate(
+                f'{term}',
+                xy=(x, y),
+                xytext=(4, 4),
+                textcoords="offset points",
+                fontsize=10,
+                alpha=0.9,
+                clip_on=True,
+                color='g'
+            )
 
     ax.set_title(
-        f"UMAP of {len(arxiv_ids):,} paper embeddings"
-        + (f" (dim={args.dim})" if args.dim else ""),
+        "Low-dimensional projection of arXiv paper embeddings",
         fontsize=13,
     )
-    ax.set_xlabel("UMAP 1")
-    ax.set_ylabel("UMAP 2")
-    ax.legend(
-        loc="upper right",
-        markerscale=3,
-        fontsize=8,
-        framealpha=0.7,
-        title="arXiv archive",
-    )
+    ax.set_xlabel("Dimension 1")
+    ax.set_ylabel("Dimension 2")
     ax.set_aspect("equal", adjustable="datalim")
 
-    # Annotate the 64 sampled papers with their titles at 4pt
-    for idx in sample_indices:
+    # Annotate the 256 sampled papers with their titles at 4pt
+    for idx in tqdm(sample_indices, desc="Annotating papers"):
         aid = arxiv_ids[idx]
         title = id_to_title.get(aid, aid)
         x, y = embedding_2d[idx, 0], embedding_2d[idx, 1]
         ax.annotate(
-            title,
+            f'{unicode_to_latex(title)}',
             xy=(x, y),
             xytext=(2, 2),
             textcoords="offset points",
-            fontsize=4,
+            fontsize=8,
             alpha=0.85,
             clip_on=True,
+            color='b'
         )
 
     fig.tight_layout()

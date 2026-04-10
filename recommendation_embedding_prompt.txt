@@ -1,0 +1,8 @@
+Instruct: Given an astrophysics paper title, author list, abstract, and a structured summary of the paper, retrieve other papers that are most similar, based on a combination of the research topic, scientific questions answered, and observational methods, analysis techniques, and datasets used.
+Query:
+Title: {title}
+Authors: {authors}
+Abstract: {abstract}
+Structured Summary:
+
+{summary}

@@ -36,7 +36,7 @@ from arxiv_lib.config import (
     BACKGROUND_NEGATIVE_COUNT,
     BACKGROUND_NEGATIVE_MIN_COUNT,
     EMBEDDING_CACHE_DB,
-    EMBEDDING_DIM,
+    RECOMMENDATION_EMBEDDING_DIM,
     MAX_DISLIKED_PAPERS_TO_USE,
     MAX_LIKED_PAPERS_TO_USE,
     MAX_MODEL_AGE_DAYS,
@@ -60,9 +60,9 @@ class NotEnoughDataError(ValueError):
 
 def _load_vectors(arxiv_ids: list[str]) -> dict[str, np.ndarray]:
     """
-    Load full embeddings for the given arXiv IDs from embeddings_cache.db.
+    Load recommendation embeddings for the given arXiv IDs from embeddings_cache.db.
 
-    Returns a dict mapping arxiv_id → truncated float32 vector (length EMBEDDING_DIM).
+    Returns a dict mapping arxiv_id → truncated float32 vector (length RECOMMENDATION_EMBEDDING_DIM).
     IDs not found in the DB are silently omitted.
     """
     if not arxiv_ids:
@@ -71,12 +71,12 @@ def _load_vectors(arxiv_ids: list[str]) -> dict[str, np.ndarray]:
     vectors: dict[str, np.ndarray] = {}
     with sqlite3.connect(EMBEDDING_CACHE_DB) as emb_con:
         rows = emb_con.execute(
-            f"SELECT arxiv_id, vector FROM embeddings WHERE arxiv_id IN ({placeholders})",
+            f"SELECT arxiv_id, vector FROM recommendation_embeddings WHERE arxiv_id IN ({placeholders})",
             arxiv_ids,
         ).fetchall()
     for arxiv_id, blob in rows:
         full = np.frombuffer(blob, dtype=np.float32)
-        vectors[arxiv_id] = full[:EMBEDDING_DIM]
+        vectors[arxiv_id] = full[:RECOMMENDATION_EMBEDDING_DIM]
     return vectors
 
 
@@ -124,7 +124,7 @@ def _get_background_negative_ids(
         placeholders = ",".join("?" * len(candidate_ids))
         embedded = {
             r[0] for r in emb_con.execute(
-                f"SELECT arxiv_id FROM embeddings WHERE arxiv_id IN ({placeholders})",
+                f"SELECT arxiv_id FROM recommendation_embeddings WHERE arxiv_id IN ({placeholders})",
                 candidate_ids,
             ).fetchall()
         }
