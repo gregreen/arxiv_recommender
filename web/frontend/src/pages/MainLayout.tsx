@@ -60,6 +60,7 @@ export default function MainLayout() {
         >
           Library
         </Link>
+        <Link to="/about" className="hidden md:inline text-sm text-gray-600 hover:text-gray-900">About</Link>
         <NavMenu email={user?.email} onLogout={handleLogout} />
       </nav>
 

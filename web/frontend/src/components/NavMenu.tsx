@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 interface NavMenuProps {
   email: string | undefined;
@@ -50,6 +51,13 @@ export default function NavMenu({ email, onLogout, adminMode = false }: NavMenuP
             <div className="px-4 py-2 text-sm text-gray-500 truncate border-b border-gray-100 mb-1">
               {email}
             </div>
+            <Link
+              to="/about"
+              onClick={() => setOpen(false)}
+              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              About
+            </Link>
             <button
               onClick={() => { setOpen(false); onLogout(); }}
               className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-red-50 hover:text-red-600 transition-colors"
