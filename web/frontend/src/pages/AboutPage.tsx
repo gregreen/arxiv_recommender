@@ -116,25 +116,29 @@ export default function AboutPage() {
       </nav>
 
       {/* Body */}
-      <main className="max-w-5xl mx-auto w-full px-6 py-8 space-y-6 text-gray-700">
-        <div className="max-w-2xl mx-auto space-y-6">
-          <p className="text-base leading-relaxed">
-            The{" "}
-            <span className="font-bold text-blue-700">arXiv Recommender</span>{" "}
-            shows you recently published papers that are related to your research interests,
-            using two sources of information:
-          </p>
-          <ol className="list-decimal list-inside space-y-1 text-base leading-relaxed pl-2">
-            <li>Papers that you mark as "relevant."</li>
-            <li>Papers that you import into your library.</li>
-          </ol>
+      <main className="max-w-7xl mx-auto w-full px-6 py-8 space-y-6 text-gray-700">
+        {/* Intro: "How it works:" label beside the text block on wide viewports, above on narrow */}
+        <div className="flex flex-col items-start gap-4 lg:flex-row lg:items-start lg:justify-center lg:gap-8">
+          <span className="font-bold text-blue-700 text-2xl whitespace-nowrap px-3 py-1 bg-blue-50 border border-blue-100 rounded-lg">How it works:</span>
+          <div className="max-w-2xl space-y-6">
+            <p className="text-base leading-relaxed">
+              The{" "}
+              <span className="font-bold text-blue-700">arXiv Recommender</span>{" "}
+              shows you recently published papers that are related to your research interests,
+              using two sources of information:
+            </p>
+            <ol className="list-decimal list-inside space-y-1 text-base leading-relaxed pl-2">
+              <li>Papers that you mark as "relevant."</li>
+              <li>Papers that you import into your library.</li>
+            </ol>
 
-          <p className="text-base leading-relaxed">
-            The {" "}
-            <span className="font-bold text-blue-700">arXiv Recommender</span>{" "}
-            passes the full text of every arXiv paper to an LLM (<a href="https://huggingface.co/Qwen/Qwen3.5-35B-A3B-Base" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Qwen3.5-35B-A17B</a>), which distills it
-            into a short, structured summary:
-          </p>
+            <p className="text-base leading-relaxed">
+              The{" "}
+              <span className="font-bold text-blue-700">arXiv Recommender</span>{" "}
+              passes the full LaTeX source of every arXiv paper to an LLM (<a href="https://huggingface.co/Qwen/Qwen3.5-35B-A3B-Base" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Qwen3.5-35B-A17B</a>), which distills it
+              into a short, structured summary:
+            </p>
+          </div>
         </div>
 
         {/* Two-panel demo */}
