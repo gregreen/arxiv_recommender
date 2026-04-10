@@ -21,6 +21,7 @@ from pydantic import BaseModel, field_validator
 from arxiv_lib.appdb import enqueue_task
 from arxiv_lib.config import (
     ARXIV_CATEGORIES,
+    EMBEDDING_CACHE_DB,
     IMPORT_TIER_THRESHOLD,
     IMPORT_DAILY_LIMIT_TIER_A,
     IMPORT_DAILY_LIMIT_TIER_B,
@@ -65,13 +66,56 @@ def _count_recent_imports(db: sqlite3.Connection, user_id: int) -> int:
     ).fetchone()[0]
 
 
-def _ensure_fetch_meta_enqueued(db: sqlite3.Connection, arxiv_id: str) -> None:
-    """Enqueue a fetch_meta task if the paper is not yet in the papers table."""
-    exists = db.execute(
+def _task_pending_or_running(db: sqlite3.Connection, task_type: str, arxiv_id: str) -> bool:
+    """Return True if there is already a pending or running task of task_type for arxiv_id."""
+    return db.execute(
+        """
+        SELECT 1 FROM task_queue
+         WHERE type = ? AND json_extract(payload, '$.arxiv_id') = ?
+           AND status IN ('pending', 'running')
+        """,
+        (task_type, arxiv_id),
+    ).fetchone() is not None
+
+
+def _ensure_ingest_enqueued(db: sqlite3.Connection, arxiv_id: str) -> None:
+    """
+    Ensure the full ingest pipeline (metadata + embeddings) will run for arxiv_id.
+
+    - Paper not in papers table          → enqueue fetch_meta (meta daemon writes
+                                           metadata then enqueues embed).
+    - Paper in papers table but missing  → enqueue embed directly (skips the
+      one or both embeddings               meta step, embeddings are the only
+                                           thing outstanding).
+    - Paper fully ingested               → nothing to do.
+
+    Deduplicates: won't add a second task if one is already pending/running.
+    """
+    has_meta = db.execute(
         "SELECT 1 FROM papers WHERE arxiv_id = ?", (arxiv_id,)
-    ).fetchone()
-    if not exists:
-        enqueue_task(db, "fetch_meta", {"arxiv_id": arxiv_id})
+    ).fetchone() is not None
+
+    if not has_meta:
+        if not _task_pending_or_running(db, "fetch_meta", arxiv_id):
+            enqueue_task(db, "fetch_meta", {"arxiv_id": arxiv_id})
+        return
+
+    # Metadata is present — check whether embeddings are missing.
+    try:
+        with sqlite3.connect(EMBEDDING_CACHE_DB) as emb_con:
+            has_search = emb_con.execute(
+                "SELECT 1 FROM search_embeddings WHERE arxiv_id = ?", (arxiv_id,)
+            ).fetchone() is not None
+            has_rec = emb_con.execute(
+                "SELECT 1 FROM recommendation_embeddings WHERE arxiv_id = ?", (arxiv_id,)
+            ).fetchone() is not None
+    except Exception:
+        # If we can't open the embedding DB, be conservative and enqueue.
+        has_search = has_rec = False
+
+    if not (has_search and has_rec):
+        if not _task_pending_or_running(db, "embed", arxiv_id):
+            enqueue_task(db, "embed", {"arxiv_id": arxiv_id})
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +195,7 @@ def add_paper(
             "INSERT INTO user_import_log (user_id, arxiv_id) VALUES (?, ?)",
             (user["id"], arxiv_id),
         )
-    _ensure_fetch_meta_enqueued(db, arxiv_id)
+    _ensure_ingest_enqueued(db, arxiv_id)
     db.commit()
     return {"arxiv_id": arxiv_id, "liked": body.liked}
 
@@ -202,7 +246,7 @@ def import_ads(
             "INSERT INTO user_import_log (user_id, arxiv_id) VALUES (?, ?)",
             (user["id"], arxiv_id),
         )
-        _ensure_fetch_meta_enqueued(db, arxiv_id)
+        _ensure_ingest_enqueued(db, arxiv_id)
         imported += 1
         recent += 1
 
@@ -234,7 +278,7 @@ def update_paper(
         """,
         (user["id"], arxiv_id, body.liked),
     )
-    _ensure_fetch_meta_enqueued(db, arxiv_id)
+    _ensure_ingest_enqueued(db, arxiv_id)
     db.commit()
     return {"arxiv_id": arxiv_id, "liked": body.liked}
 

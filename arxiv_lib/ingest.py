@@ -399,7 +399,7 @@ def fetch_arxiv_metadata_s2(
 
     for start in range(0, len(arxiv_ids), S2_BATCH_SIZE):
         chunk  = arxiv_ids[start: start + S2_BATCH_SIZE]
-        s2_ids = [f"arXiv:{aid}" for aid in chunk]
+        s2_ids = [f"ARXIV:{aid}" for aid in chunk]
 
         try:
             resp = _post_chunk(s2_ids)
