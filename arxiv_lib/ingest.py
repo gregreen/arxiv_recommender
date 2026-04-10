@@ -70,8 +70,36 @@ def _init_embedding_db() -> None:
             "CREATE TABLE IF NOT EXISTS recommendation_embeddings "
             "(arxiv_id TEXT PRIMARY KEY, vector BLOB NOT NULL)"
         )
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS search_term_embeddings "
+            "(query TEXT PRIMARY KEY, vector BLOB NOT NULL)"
+        )
         con.commit()
     _embedding_db_initialized = True
+
+
+def store_search_term_embedding(query: str, vector: np.ndarray) -> None:
+    """Upsert a search-query embedding into search_term_embeddings."""
+    _init_embedding_db()
+    blob = vector.astype(np.float32).tobytes()
+    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+        con.execute(
+            "INSERT OR REPLACE INTO search_term_embeddings VALUES (?, ?)",
+            (query, blob),
+        )
+
+
+def load_search_term_embedding(query: str) -> "np.ndarray | None":
+    """Return the cached embedding for *query*, or None if not found."""
+    _init_embedding_db()
+    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+        row = con.execute(
+            "SELECT vector FROM search_term_embeddings WHERE query = ?",
+            (query,),
+        ).fetchone()
+    if row is None:
+        return None
+    return np.frombuffer(row[0], dtype=np.float32).copy()
 
 
 def load_embedding_cache() -> dict[str, np.ndarray]:

@@ -130,6 +130,17 @@ CREATE TABLE IF NOT EXISTS user_import_log (
 );
 CREATE INDEX IF NOT EXISTS user_import_log_user_time
     ON user_import_log(user_id, imported_at);
+
+-- Per-user search term history
+-- relevance: NULL until set by the recommendation pipeline
+-- last_searched_at: updated each time the user submits this query
+CREATE TABLE IF NOT EXISTS user_search_terms (
+    user_id          INTEGER NOT NULL REFERENCES users(id),
+    query            TEXT NOT NULL,
+    relevance        REAL,
+    last_searched_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, query)
+);
 """
 
 
