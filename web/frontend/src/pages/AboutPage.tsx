@@ -128,7 +128,7 @@ export default function AboutPage() {
               using two sources of information:
             </p>
             <ol className="list-decimal list-inside space-y-1 text-base leading-relaxed pl-2">
-              <li>Papers that you mark as "relevant."</li>
+              <li>Papers that you mark as <span className="inline-flex items-center px-1.5 py-0.5 rounded text-sm font-medium bg-green-600 text-white">👍 Relevant</span> or <span className="inline-flex items-center px-1.5 py-0.5 rounded text-sm font-medium bg-red-600 text-white">👎 Not Relevant</span>.</li>
               <li>Papers that you import into your library.</li>
             </ol>
 
@@ -182,7 +182,27 @@ export default function AboutPage() {
             <img src="/embedding_space.svg" alt="Embedding space visualisation" className="w-full h-auto" />
           </div>
           <p className="w-full text-sm text-gray-600 lg:w-52 lg:flex-shrink-0">
-            <span className="font-bold">Paper embeddings</span>: Each paper is embedded into a high-dimensional vector space, based on its meaning and content. Here, we plot a low-dimensional visualization of the embedding. <span className="font-semibold text-gray-500">Gray</span> dots show random <span className="font-mono whitespace-nowrap">astro-ph</span> papers, tracing the astrophysics research landscape. Selected papers, highlighted in <span className="font-semibold text-blue-600">blue</span>, show that similar papers are positioned close together. We can also embed search terms (<span className="font-semibold text-green-600">green</span>) into the same space in order to retrieve relevant papers.
+            <span className="font-bold">Paper embeddings</span>: Each paper is embedded into a high-dimensional vector space, based on its meaning and content. Here, we plot a low-dimensional visualization of the embedding space. <span className="font-semibold text-gray-500">Gray</span> dots show random <span className="font-mono whitespace-nowrap">astro-ph</span> papers, tracing the astrophysics research landscape. Selected papers, highlighted in <span className="font-semibold text-blue-600">blue</span>, show that similar papers are positioned close together. We can also embed search terms (<span className="font-semibold text-green-600">green</span>) into the same space in order to retrieve relevant papers.
+          </p>
+        </div>
+
+        <div className="max-w-2xl mx-auto">
+          <p className="text-base leading-relaxed">
+            By marking papers as{" "}
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-sm font-medium bg-green-600 text-white">👍 Relevant</span>{" "}
+            or{" "}
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-sm font-medium bg-red-600 text-white">👎 Not Relevant</span>,
+            you help train the{" "}
+            <span className="font-bold text-blue-700">arXiv Recommender</span>{" "}
+            to recognize papers that you are likely to be interested in. Papers from the past day, week or month will be automatically sorted based on your predicted interest in them.
+            You can additionally enter specific terms (e.g., “<span className="font-mono">microlensing</span>” or “<span className="font-mono">observations of high-redshift quasars with JWST</span>”) into the search bar{" "}
+            (<span className="inline-flex items-center justify-center w-7 h-7 rounded bg-gray-100 text-gray-600 align-middle">
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            </span>){" "}
+            to find recent papers on any given topic.
           </p>
         </div>
       </main>
