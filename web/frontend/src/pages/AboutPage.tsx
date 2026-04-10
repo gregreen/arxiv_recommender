@@ -110,7 +110,7 @@ export default function AboutPage() {
         ) : (
           <>
             <span className="text-sm text-gray-600 font-medium">About</span>
-            <Link to="/login" className="text-sm text-gray-600 hover:text-gray-900 ml-auto">Sign in</Link>
+            <Link to="/login" className="text-sm text-gray-600 hover:text-gray-900 ml-auto">Sign in / register</Link>
           </>
         )}
       </nav>

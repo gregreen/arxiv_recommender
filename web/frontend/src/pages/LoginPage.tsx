@@ -50,7 +50,15 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="flex flex-col min-h-screen bg-gray-50">
+      <nav
+        className="flex items-center gap-4 px-4 py-2 border-b border-blue-200 shrink-0"
+        style={{ background: "linear-gradient(42deg, #ebf5ff, #91caff)" }}
+      >
+        <Link to="/" className="font-bold text-blue-700 text-lg">arXiv Recommender</Link>
+        <Link to="/about" className="text-sm text-gray-600 hover:text-gray-900">About</Link>
+      </nav>
+      <div className="flex-1 flex items-center justify-center">
       <div className="bg-white shadow rounded-lg p-8 w-full max-w-sm">
         <h1 className="text-2xl font-bold mb-6 text-gray-800">Sign In</h1>
         {pendingVerification ? (
@@ -105,6 +113,7 @@ export default function LoginPage() {
             Register
           </Link>
         </p>
+      </div>
       </div>
     </div>
   );
