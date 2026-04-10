@@ -135,7 +135,7 @@ export default function AboutPage() {
             <p className="text-base leading-relaxed">
               The{" "}
               <span className="font-bold text-blue-700">arXiv Recommender</span>{" "}
-              passes the full LaTeX source of every arXiv paper to an LLM (<a href="https://huggingface.co/Qwen/Qwen3.5-35B-A3B-Base" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Qwen3.5-35B-A3B</a>), which distills it
+              passes the full LaTeX source of every arXiv paper to a highly efficient reasoning LLM (<a href="https://huggingface.co/Qwen/Qwen3.5-35B-A3B-Base" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Qwen3.5-35B-A3B</a>), which distills it
               into a short, structured summary:
             </p>
           </div>
@@ -173,7 +173,7 @@ export default function AboutPage() {
 
         <div className="max-w-2xl mx-auto">
           <p className="text-base leading-relaxed">
-            This summary, combined with metadata, is then passed to an Embedding LLM (<a href="https://huggingface.co/Qwen/Qwen3-Embedding-8B" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Qwen3-Embedding-8B</a>), which converts the paper into a high-dimensional vector representing its subject and content. Similar papers will be converted into similar vectors. The recommendation algorithm uses these vector embeddings to predict which new papers you will find interesting.
+            This summary, combined with metadata, is then passed to an embedding model (<a href="https://huggingface.co/Qwen/Qwen3-Embedding-8B" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Qwen3-Embedding-8B</a>), which converts the paper into a high-dimensional vector representing its subject and content. Similar papers will be converted into similar vectors. The recommendation algorithm uses these vector embeddings to predict which new papers you will find interesting.
           </p>
         </div>
 
