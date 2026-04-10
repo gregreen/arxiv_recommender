@@ -82,11 +82,13 @@ RBF_PCA_COMPONENTS = 32
 BACKGROUND_NEGATIVE_COUNT = 512
 BACKGROUND_NEGATIVE_MIN_COUNT = 64
 
-# Cap on how many of the user's most-recently-added liked/disliked papers are
-# used for training.  Prevents training time growing unboundedly as the library
-# grows and keeps the model focused on recent interests.
+# Cap on how many of the user's most-recently-added liked/disliked
+# papers + query terms are used for training. Prevents training time
+# from growing unboundedly as the library grows, and keeps the model
+# focused on recent interests.
 MAX_LIKED_PAPERS_TO_USE    = 256
 MAX_DISLIKED_PAPERS_TO_USE = 128
+MAX_QUERY_TERMS_TO_USE     = 128
 
 # Models older than this are retrained unconditionally (even if the hash
 # matches) so that drifting background negatives are refreshed.

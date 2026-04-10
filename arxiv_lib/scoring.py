@@ -39,6 +39,7 @@ def rbf_scoring(
     gammas: np.ndarray,
     positive_vectors: np.ndarray,
     search_vectors: np.ndarray | None = None,
+    metric='sqeuclidean'
 ) -> np.ndarray:
     """
     Compute RBF kernel aggregate scores for *search_vectors* relative to *positive_vectors*.
@@ -50,8 +51,12 @@ def rbf_scoring(
     positive_vectors : np.ndarray, shape (N_pos, D)
         Already-standardised reference embedding vectors.
     search_vectors : np.ndarray, shape (N_search, D) | None
-        Standardized vectors to score.  When *None*, positive_vectors are scored against
-        themselves (self-similarity excluded via diagonal replacement with row median).
+        Standardized vectors to score.  When *None*, positive_vectors are
+        scored against themselves (self-similarity excluded via diagonal
+        replacement with row median).
+    metric : str
+        Distance metric to use for cdist. Default is 'sqeuclidean' (squared
+        Euclidean distance).
 
     Returns
     -------
@@ -63,17 +68,18 @@ def rbf_scoring(
 
     if search_vectors is None:
         # Exclude comparisons to self by replacing diagonal with row median
-        sq = -gamma_0 * cdist(positive_vectors, positive_vectors, "sqeuclidean")
+        sq = -gamma_0 * cdist(positive_vectors, positive_vectors, metric)
         diag = np.diag_indices_from(sq)
         sq[diag] = np.median(sq, axis=1)
     else:
-        sq = -gamma_0 * cdist(search_vectors, positive_vectors, "sqeuclidean")
+        sq = -gamma_0 * cdist(search_vectors, positive_vectors, metric)
 
     n_rows = sq.shape[0]
     features = np.empty((n_rows, len(gammas)+1), dtype=np.float64)
     features[:, 0] = np.max(sq, axis=1)
     for i, g in enumerate(gammas):
         features[:, i+1] = logsumexp(g * sq, axis=1)
+    
     return features
 
 
@@ -206,6 +212,7 @@ class ScoringModel(object):
         sigma_vectors: np.ndarray,
         positive_vectors: np.ndarray,
         positive_ids: list[str] | None = None,
+        query_vectors: np.ndarray | None = None
     ):
         self.logistic_model = logistic_model
         self.P_residual = residual_projection_matrix
@@ -215,11 +222,14 @@ class ScoringModel(object):
         self.sigma_vectors = sigma_vectors
         self.positive_vectors = positive_vectors
         self.positive_ids: list[str] = positive_ids or []
+        self.query_vectors = query_vectors
 
     @classmethod
     def from_training_data(cls, positive_vectors: np.ndarray,
                                 negative_vectors: np.ndarray,
-                                positive_ids: list[str] | None = None) -> "ScoringModel":
+                                positive_ids: list[str] | None = None,
+                                query_vectors: np.ndarray | None = None
+                          ) -> "ScoringModel":
         """
         Train a ScoringModel from the given positive and negative embedding vectors.
 
@@ -233,6 +243,9 @@ class ScoringModel(object):
             arXiv IDs corresponding to each row of *positive_vectors*, in the same
             order.  When provided, score_positive_embeddings() results can be mapped
             back to paper IDs without self-similarity bias.
+        query_vectors: np.ndarray, shape (N_query, D) | None
+            Optional original (unscaled) embedding vectors for the query terms that
+            could be related to the user's interests.
         
         Returns
         -------
@@ -249,11 +262,15 @@ class ScoringModel(object):
             sigma_vectors=None,
             positive_vectors=None,
             positive_ids=list(positive_ids) if positive_ids is not None else [],
+            query_vectors=None
         )
-        model.fit(positive_vectors, negative_vectors)
+        model.fit(positive_vectors, negative_vectors, query_vectors=query_vectors)
         return model
 
-    def fit(self, positive_vectors: np.ndarray, negative_vectors: np.ndarray):
+    def fit(self, positive_vectors: np.ndarray,
+                  negative_vectors: np.ndarray,
+                  query_vectors: np.ndarray | None = None
+           ) -> None:
         """
         Fit the logistic regression model given positive and negative vectors.
 
@@ -267,7 +284,11 @@ class ScoringModel(object):
             Original (unscaled) embedding vectors for the positive (liked) papers.
         negative_vectors : np.ndarray, shape (N_neg, D)
             Original (unscaled) embedding vectors for the negative (disliked) papers.
+        query_vectors: np.ndarray, shape (N_query, D) | None
+            Optional original (unscaled) embedding vectors for the query terms that
+            could be related to the user's interests.
         """
+
         # Scale vectors (zero mean, unit variance)
         vectors = np.concatenate((positive_vectors, negative_vectors), axis=0)
         self.mu_vectors = np.mean(vectors, axis=0)
@@ -290,7 +311,30 @@ class ScoringModel(object):
             n_pca_components=RBF_PCA_COMPONENTS,
             P_residual=self.P_residual
         )
-        # Concatenate features
+        # Calculate query features for positive vectors
+        if query_vectors is not None:
+            query_features_pos = rbf_scoring(
+                RBF_GAMMAS,
+                query_vectors,
+                positive_vectors,
+                metric='cosine'
+            )
+            query_features_neg = rbf_scoring(
+                RBF_GAMMAS,
+                query_vectors,
+                negative_vectors,
+                metric='cosine'
+            )
+            features_pos = np.concatenate(
+                (features_pos, query_features_pos),
+                axis=1
+            )
+            features_neg = np.concatenate(
+                (features_neg, query_features_neg),
+                axis=1
+            )
+        
+        # Concatenate features along the sample dimension
         features = np.concatenate((features_pos, features_neg), axis=0)
         
         # Scale features (zero mean, unit variance)
@@ -298,8 +342,8 @@ class ScoringModel(object):
         self.sigma_features = features.std(axis=0)
         features = self.scale_features(features)
 
-        # print(f'mu_features = {self.mu_features}')
-        # print(f'sigma_features = {self.sigma_features}')
+        print(f'mu_features = {self.mu_features}')
+        print(f'sigma_features = {self.sigma_features}')
 
         # print('Positive features (first 5 rows):')
         # print(self.scale_features(features_pos)[:5])
@@ -320,21 +364,45 @@ class ScoringModel(object):
         )
         self.logistic_model.fit(features, y)
 
+        # Store positive and query vectors for later use in scoring
+        self.positive_vectors = positive_vectors
+        self.query_vectors = query_vectors
+
+        self.print_coefficients() # Debugging
+    
+    def print_coefficients(self):
         # Print regression coefficients for debugging
         # Need to show both the max_sim and logsumexp features for each gamma
         # and the full-space and residual features separately to understand what the model is doing.
-        # print("Logistic regression coefficients:")
-        # print('gamma  coeff_full  coeff_res')
-        # coeff_full = self.logistic_model.coef_[0, 0]
-        # coeff_res = self.logistic_model.coef_[0, 1+len(RBF_GAMMAS)]
-        # for i, gamma in enumerate(RBF_GAMMAS):
-        #     coeff_full = self.logistic_model.coef_[0, i+1]
-        #     coeff_res = self.logistic_model.coef_[0, i+2+len(RBF_GAMMAS)]
-        #     print(f'{np.log(gamma): >+5.2f}  {coeff_full: >+10.5f}  {coeff_res: >+10.5f}')
-        # print(f' inf   {coeff_full: >+10.5f}  {coeff_res: >+10.5f}')
+        print("Logistic regression coefficients:")
+        print('gamma  coeff_full  coeff_res   coeff_query')
+        print('-----  ----------  ----------  ------------')
 
-        # Store positive vectors for later use in scoring
-        self.positive_vectors = positive_vectors
+        # Extract different categories of coefficients for clarity
+        n_f = 1 + len(RBF_GAMMAS)  # Number of full-space features
+        coeff_full = self.logistic_model.coef_[0, :n_f]
+        coeff_res = self.logistic_model.coef_[0, n_f:2*n_f]
+        coeff_query = (
+            np.full_like(coeff_res, np.nan)
+            if self.query_vectors is None else
+            self.logistic_model.coef_[0, 2*n_f:]
+        )
+
+        # Print features in order from largest to smallest scales
+        for i, gamma in enumerate(RBF_GAMMAS):
+            print(
+                f'{np.log(gamma): >+5.2f}  '
+               +f'{coeff_full[i+1]: >+10.5f}  '
+               +f'{coeff_res[i+1]: >+10.5f}  '
+               +f'{coeff_query[i+1]: >+10.5f}'
+            )
+        # Nearest-neighbor features (gamma -> inf)
+        print(
+            f' inf   '
+           +f'{coeff_full[0]: >+10.5f}  '
+           +f'{coeff_res[0]: >+10.5f}  '
+           +f'{coeff_query[0]: >+10.5f}'
+        )
     
     def scale_features(self, features: np.ndarray) -> np.ndarray:
         """Scale features using the mean and std from the training data."""
@@ -352,6 +420,20 @@ class ScoringModel(object):
         vectors_scaled = (vectors - self.mu_vectors[None]) / self.sigma_vectors[None]
         return vectors_scaled
     
+    def _calc_query_features(self, vectors: np.ndarray) -> np.ndarray:
+        if self.query_vectors is not None:
+            # No scaling applied for query-vector comparison, since
+            # embeddings are trained to maximize cosine similarity for
+            # query vs. relevant documents.
+            features = rbf_scoring(
+                RBF_GAMMAS,
+                self.query_vectors,
+                vectors,
+                metric='cosine'
+            )
+            return features
+        return None
+    
     def score_embeddings(self, vectors: np.ndarray) -> np.ndarray:
         """
         Apply the fitted model to score the given embedding vectors.
@@ -368,14 +450,25 @@ class ScoringModel(object):
         np.ndarray, shape (N_eval,)
             ln P(relevant) scores for each input vector. Higher = more recommended.
         """
+        # Calculate features vs. positive vectors
         features, _ = calculate_rbf_features(
             self.scale_vectors(self.positive_vectors),
             v_eval=self.scale_vectors(vectors),
             gammas=RBF_GAMMAS,
             P_residual=self.P_residual
         )
+
+        # If user query vectors are available, calculate features
+        if self.query_vectors is not None:
+            query_features = self._calc_query_features(vectors)
+            features = np.concatenate((features, query_features), axis=1)
+        
+        # Scale features using the training data statistics
         features = self.scale_features(features)
+
+        # Input features into Logistic Regression model
         ln_prob = self.logistic_model.predict_log_proba(features)[:, 1]
+
         return ln_prob
     
     def score_positive_embeddings(self) -> np.ndarray:
@@ -383,7 +476,7 @@ class ScoringModel(object):
         Score the positive (liked) embedding vectors using the fitted model.
 
         This is a convenience method that applies the model to the original
-        positive vectors, which are stored in this instance.  This is used to
+        positive vectors, which are stored in this instance. This is used to
         calculate the "self-similarity" feature for liked papers.
 
         Returns
@@ -397,8 +490,15 @@ class ScoringModel(object):
             gammas=RBF_GAMMAS,
             P_residual=self.P_residual
         )
+
+        # If user query vectors are available, calculate features
+        if self.query_vectors is not None:
+            query_features = self._calc_query_features(self.positive_vectors)
+            features = np.concatenate((features, query_features), axis=1)
+        
         features = self.scale_features(features)
         ln_prob = self.logistic_model.predict_log_proba(features)[:, 1]
+
         return ln_prob
     
     def serialize(self) -> dict:
@@ -419,6 +519,10 @@ class ScoringModel(object):
             "sigma_vectors": self.sigma_vectors.tolist(),
             "positive_vectors": self.positive_vectors.tolist(),
             "positive_ids": self.positive_ids,
+            "query_vectors": (
+                self.query_vectors.tolist()
+                if self.query_vectors is not None else None
+            )
         }
     
     @classmethod
@@ -429,7 +533,8 @@ class ScoringModel(object):
         Parameters
         ----------
         data : dict
-            Dictionary containing the serialized model components, as produced by serialize().
+            Dictionary containing the serialized model components, as produced
+            by serialize().
 
         Returns
         -------
@@ -445,8 +550,11 @@ class ScoringModel(object):
             sigma_vectors=np.array(data["sigma_vectors"]),
             positive_vectors=np.array(data["positive_vectors"]),
             positive_ids=data.get("positive_ids", []),
+            query_vectors=(
+                np.array(data["query_vectors"])
+                if data.get("query_vectors") is not None else None
+            )
         )
-
 
 def serialize_logistic_regression_model(model: LogisticRegression) -> dict:
     """Serialize a LogisticRegression model into a dictionary."""
@@ -471,13 +579,17 @@ def deserialize_logistic_regression_model(data: dict) -> LogisticRegression:
     return model
 
 
-def compute_model_hash(liked_ids: list[str], disliked_ids: list[str] = ()) -> str:
+def compute_model_hash(liked_ids: list[str],
+                       disliked_ids: list[str] = (),
+                       query_terms: list[str] = ()) -> str:
     """
-    Compute a short hash that uniquely identifies the combination of liked/disliked
-    papers and current scoring configuration.
+    Compute a short hash that uniquely identifies the combination
+    of liked/disliked papers, user query terms, and the current scoring
+    configuration.
 
-    The hash changes whenever the liked or disliked set, embedding dimension, or
-    scoring version changes, allowing callers to detect stale cached models.
+    The hash changes whenever the liked or disliked set, the query set,
+    the embedding dimension, or scoring version changes, allowing callers
+    to detect stale cached models.
 
     Parameters
     ----------
@@ -485,6 +597,8 @@ def compute_model_hash(liked_ids: list[str], disliked_ids: list[str] = ()) -> st
         arXiv IDs of the user's liked papers.  Order does not matter.
     disliked_ids : list[str]
         arXiv IDs of the user's explicitly disliked papers.  Order does not matter.
+    query_terms : list[str]
+        query terms that the user has entered, which may influence the model.  Order does not matter.
 
     Returns
     -------
@@ -494,6 +608,7 @@ def compute_model_hash(liked_ids: list[str], disliked_ids: list[str] = ()) -> st
     payload = (
         json.dumps(sorted(liked_ids))
         + json.dumps(sorted(disliked_ids))
+        + json.dumps(sorted(query_terms))
         + str(RECOMMENDATION_EMBEDDING_DIM)
         + SCORING_VERSION
     )

@@ -40,9 +40,11 @@ from arxiv_lib.config import (
     MAX_DISLIKED_PAPERS_TO_USE,
     MAX_LIKED_PAPERS_TO_USE,
     MAX_MODEL_AGE_DAYS,
+    MAX_QUERY_TERMS_TO_USE,
     RECOMMEND_MIN_LIKED,
     RECOMMEND_TIME_WINDOWS,
 )
+from arxiv_lib.ingest import load_search_term_embedding
 from arxiv_lib.scoring import ScoringModel, compute_model_hash
 
 
@@ -208,7 +210,25 @@ def get_or_train_model(
     liked_ids    = [r[0] for r in rows if r[1] ==  1][:MAX_LIKED_PAPERS_TO_USE]
     disliked_ids = [r[0] for r in rows if r[1] == -1][:MAX_DISLIKED_PAPERS_TO_USE]
 
-    model_hash = compute_model_hash(liked_ids, disliked_ids)
+    # Load query terms and their embeddings
+    query_rows = con.execute(
+        "SELECT query FROM user_search_terms WHERE user_id = ?"
+        " ORDER BY last_searched_at DESC LIMIT ?",
+        (user_id, MAX_QUERY_TERMS_TO_USE),
+    ).fetchall()
+    query_terms_with_embeddings = []
+    query_vecs_list = []
+    for (query,) in query_rows:
+        vec = load_search_term_embedding(query)
+        if vec is not None:
+            query_terms_with_embeddings.append(query)
+            query_vecs_list.append(vec[:RECOMMENDATION_EMBEDDING_DIM])
+    query_vectors = (
+        np.array(query_vecs_list, dtype=np.float32)
+        if query_vecs_list else None
+    )
+
+    model_hash = compute_model_hash(liked_ids, disliked_ids, query_terms_with_embeddings)
 
     # Check for a cached model with a matching hash
     cached = con.execute(
@@ -248,7 +268,11 @@ def get_or_train_model(
 
     v_pos = np.array(v_pos_list, dtype=np.float32)
     v_neg = np.array(list(neg_dict.values()), dtype=np.float32)
-    model = ScoringModel.from_training_data(v_pos, v_neg, positive_ids=pos_ids_list)
+    model = ScoringModel.from_training_data(
+        v_pos, v_neg,
+        positive_ids=pos_ids_list,
+        query_vectors=query_vectors
+    )
 
     # Persist the trained model
     con.execute(
