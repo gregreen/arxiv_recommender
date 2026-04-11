@@ -46,9 +46,14 @@ with open(os.path.join(BASE_DIR, "system_prompt_summary.txt")) as f:
 # Embeddings are stored at EMBEDDING_STORAGE_DIM dimensions.
 # SEARCH_EMBEDDING_DIM: dimensions used at search time (higher = more precise).
 # RECOMMENDATION_EMBEDDING_DIM: dimensions used at recommendation scoring time.
-EMBEDDING_STORAGE_DIM       = 512
-SEARCH_EMBEDDING_DIM        = 512
+EMBEDDING_STORAGE_DIM        = 512
+SEARCH_EMBEDDING_DIM         = 512
 RECOMMENDATION_EMBEDDING_DIM = 128
+# Dimensionality to which query and paper-search vectors are truncated before
+# being passed to ScoringModel.  Search embeddings are more informative than
+# recommendation embeddings for query-vs-paper comparisons, but higher dimensions
+# increase RAM and training time.  Must be ≤ EMBEDDING_STORAGE_DIM.
+QUERY_VECTOR_DIM             = 512
 
 # Search embedding prompt template (used for semantic search queries).
 # Supports {title}, {summary}, {abstract}, and {authors} placeholders.
@@ -66,10 +71,10 @@ with open(os.path.join(BASE_DIR, "recommendation_embedding_prompt.txt")) as f:
 # Bump SCORING_VERSION whenever the scoring algorithm changes in a way that
 # would make previously cached user models produce wrong results.  This
 # causes all cached models in user_models to be re-trained on next use.
-SCORING_VERSION = "v2"
+SCORING_VERSION = "v3"
 
 # RBF kernel: gammas are spaced logarithmically.
-RBF_GAMMAS = np.logspace(-6, 6, num=6, base=2)
+RBF_GAMMAS = np.logspace(-6, 4, num=6, base=2)
 
 # Number of SVD components extracted from the positive-vector matrix.
 RBF_PCA_COMPONENTS = 32
@@ -116,7 +121,7 @@ IMPORT_DAILY_LIMIT_TIER_A  = 16
 IMPORT_DAILY_LIMIT_TIER_B  = 4
 
 # How long the ingest daemons sleep between polls when the task queue is empty.
-META_INGEST_POLL_INTERVAL = 5   # seconds
+META_INGEST_POLL_INTERVAL  = 5.0 # seconds
 EMBED_INGEST_POLL_INTERVAL = 0.1 # seconds
 
 # Maximum number of 'fetch_meta' tasks claimed and processed in one S2 batch call.

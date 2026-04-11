@@ -37,6 +37,7 @@ from arxiv_lib.config import (
     BACKGROUND_NEGATIVE_MIN_COUNT,
     EMBEDDING_CACHE_DB,
     RECOMMENDATION_EMBEDDING_DIM,
+    QUERY_VECTOR_DIM,
     MAX_DISLIKED_PAPERS_TO_USE,
     MAX_LIKED_PAPERS_TO_USE,
     MAX_MODEL_AGE_DAYS,
@@ -79,6 +80,28 @@ def _load_vectors(arxiv_ids: list[str]) -> dict[str, np.ndarray]:
     for arxiv_id, blob in rows:
         full = np.frombuffer(blob, dtype=np.float32)
         vectors[arxiv_id] = full[:RECOMMENDATION_EMBEDDING_DIM]
+    return vectors
+
+
+def _load_search_paper_vectors(arxiv_ids: list[str]) -> dict[str, np.ndarray]:
+    """
+    Load search embeddings for the given arXiv IDs from embeddings_cache.db.
+
+    Returns a dict mapping arxiv_id → truncated float32 vector (length QUERY_VECTOR_DIM).
+    IDs not found in the DB are silently omitted.
+    """
+    if not arxiv_ids:
+        return {}
+    placeholders = ",".join("?" * len(arxiv_ids))
+    vectors: dict[str, np.ndarray] = {}
+    with sqlite3.connect(EMBEDDING_CACHE_DB) as emb_con:
+        rows = emb_con.execute(
+            f"SELECT arxiv_id, vector FROM search_embeddings WHERE arxiv_id IN ({placeholders})",
+            arxiv_ids,
+        ).fetchall()
+    for arxiv_id, blob in rows:
+        full = np.frombuffer(blob, dtype=np.float32)
+        vectors[arxiv_id] = full[:QUERY_VECTOR_DIM]
     return vectors
 
 
@@ -222,7 +245,7 @@ def get_or_train_model(
         vec = load_search_term_embedding(query)
         if vec is not None:
             query_terms_with_embeddings.append(query)
-            query_vecs_list.append(vec[:RECOMMENDATION_EMBEDDING_DIM])
+            query_vecs_list.append(vec[:QUERY_VECTOR_DIM])
     query_vectors = (
         np.array(query_vecs_list, dtype=np.float32)
         if query_vecs_list else None
@@ -243,35 +266,65 @@ def get_or_train_model(
             model = ScoringModel.deserialize(json.loads(cached[0]))
             return model, model_hash
 
-    # Need to retrain — load vectors
-    liked_vectors    = _load_vectors(liked_ids)
-    disliked_vectors = _load_vectors(disliked_ids)
-    exclude_ids      = set(liked_ids) | set(disliked_ids)
-    background_ids   = _get_background_negative_ids(con, exclude_ids)
-    background_vectors = _load_vectors(background_ids)
+    # Need to retrain — load recommendation embeddings
+    liked_rec_vectors    = _load_vectors(liked_ids)
+    disliked_rec_vectors = _load_vectors(disliked_ids)
+    exclude_ids          = set(liked_ids) | set(disliked_ids)
+    background_ids       = _get_background_negative_ids(con, exclude_ids)
+    background_rec_vectors = _load_vectors(background_ids)
+
+    # If user has query vectors, also load paper search embeddings and require
+    # both rec and search embeddings for every training paper.
+    if query_vectors is not None:
+        liked_search_vectors      = _load_search_paper_vectors(liked_ids)
+        disliked_search_vectors   = _load_search_paper_vectors(disliked_ids)
+        background_search_vectors = _load_search_paper_vectors(background_ids)
+
+        pos_ids_list = [
+            aid for aid in liked_rec_vectors if aid in liked_search_vectors
+        ]
+        neg_rec_all    = {**background_rec_vectors, **disliked_rec_vectors}
+        neg_search_all = {**background_search_vectors, **disliked_search_vectors}
+        neg_ids        = [aid for aid in neg_rec_all if aid in neg_search_all]
+
+        v_pos_query = np.array(
+            [liked_search_vectors[aid] for aid in pos_ids_list], dtype=np.float32
+        )
+        v_neg_query = np.array(
+            [neg_search_all[aid] for aid in neg_ids], dtype=np.float32
+        )
+        v_neg_list = [neg_rec_all[aid] for aid in neg_ids]
+    else:
+        pos_ids_list = [aid for aid in liked_rec_vectors]
+        neg_rec_all  = {**background_rec_vectors, **disliked_rec_vectors}
+        neg_ids      = list(neg_rec_all.keys())
+        v_neg_list   = list(neg_rec_all.values())
+        v_pos_query  = None
+        v_neg_query  = None
 
     # Validate training set
-    pos_ids_list = [aid for aid in liked_vectors]
-    v_pos_list = [liked_vectors[aid] for aid in pos_ids_list]
+    v_pos_list = [liked_rec_vectors[aid] for aid in pos_ids_list]
     if len(v_pos_list) < RECOMMEND_MIN_LIKED:
         raise NotEnoughDataError(
             f"Need at least {RECOMMEND_MIN_LIKED} liked papers with embeddings to train "
             f"(have {len(v_pos_list)})."
         )
 
-    neg_dict = {**background_vectors, **disliked_vectors}
-    if len(neg_dict) < BACKGROUND_NEGATIVE_MIN_COUNT:
+    if len(neg_ids) < BACKGROUND_NEGATIVE_MIN_COUNT:
         raise NotEnoughDataError(
             f"Need at least {BACKGROUND_NEGATIVE_MIN_COUNT} negative papers with embeddings "
-            f"(have {len(neg_dict)})."
+            f"(have {len(neg_ids)})."
         )
-
+    
     v_pos = np.array(v_pos_list, dtype=np.float32)
-    v_neg = np.array(list(neg_dict.values()), dtype=np.float32)
+    v_neg = np.array(v_neg_list, dtype=np.float32)
     model = ScoringModel.from_training_data(
         v_pos, v_neg,
         positive_ids=pos_ids_list,
-        query_vectors=query_vectors
+        query_vectors=query_vectors,
+        positive_query_vectors=v_pos_query,
+        negative_query_vectors=v_neg_query,
+        query_terms=query_terms_with_embeddings
     )
 
     # Persist the trained model
@@ -316,8 +369,18 @@ def refresh_recommendations(
         return
 
     all_vectors = _load_vectors(all_ids)
-    # Keep only IDs that have both metadata and an embedding
-    scoreable_ids = [aid for aid in all_ids if aid in all_vectors]
+
+    # When the model uses query features, also load paper search embeddings and
+    # require both embedding types for a paper to be scored.
+    if model.query_vectors is not None:
+        all_search_vectors = _load_search_paper_vectors(all_ids)
+        scoreable_ids = [
+            aid for aid in all_ids
+            if aid in all_vectors and aid in all_search_vectors
+        ]
+    else:
+        all_search_vectors = {}
+        scoreable_ids = [aid for aid in all_ids if aid in all_vectors]
 
     # Identify liked papers — use self-similarity-corrected scoring for them
     liked_set = set(model.positive_ids)
@@ -328,7 +391,13 @@ def refresh_recommendations(
     scores: dict[str, float] = {}
     if non_liked_ids:
         v_non_liked = np.array([all_vectors[aid] for aid in non_liked_ids], dtype=np.float32)
-        s = model.score_embeddings(v_non_liked)
+        if model.query_vectors is not None:
+            v_non_liked_query = np.array(
+                [all_search_vectors[aid] for aid in non_liked_ids], dtype=np.float32
+            )
+            s = model.score_embeddings(v_non_liked, query_vectors_for_papers=v_non_liked_query)
+        else:
+            s = model.score_embeddings(v_non_liked)
         for aid, sc in zip(non_liked_ids, s):
             scores[aid] = float(sc)
 
@@ -344,7 +413,13 @@ def refresh_recommendations(
                 scores[aid] = pos_scores[aid]
         if stragglers:
             v_stragglers = np.array([all_vectors[aid] for aid in stragglers], dtype=np.float32)
-            s = model.score_embeddings(v_stragglers)
+            if model.query_vectors is not None:
+                v_stragglers_query = np.array(
+                    [all_search_vectors[aid] for aid in stragglers], dtype=np.float32
+                )
+                s = model.score_embeddings(v_stragglers, query_vectors_for_papers=v_stragglers_query)
+            else:
+                s = model.score_embeddings(v_stragglers)
             for aid, sc in zip(stragglers, s):
                 scores[aid] = float(sc)
 

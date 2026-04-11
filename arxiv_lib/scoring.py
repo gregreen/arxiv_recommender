@@ -24,6 +24,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
 from arxiv_lib.config import (
+    QUERY_VECTOR_DIM,
     RECOMMENDATION_EMBEDDING_DIM,
     RBF_GAMMAS,
     RBF_PCA_COMPONENTS,
@@ -60,7 +61,7 @@ def rbf_scoring(
 
     Returns
     -------
-    np.ndarray, shape (N_search_or_pos, G + 1)
+    np.ndarray, shape (N_search, G + 1)
         Column 0: max similarity to any positive vector.
         Columns 1..G: logsumexp of RBF(gamma_i) across positive vectors.
     """
@@ -80,6 +81,9 @@ def rbf_scoring(
     for i, g in enumerate(gammas):
         features[:, i+1] = logsumexp(g * sq, axis=1)
     
+    # Convert sum into mean
+    features[:,1:] -= np.log(positive_vectors.shape[0])
+
     return features
 
 
@@ -194,6 +198,23 @@ def calculate_rbf_features(
     return features, P_proj
 
 
+def score_query_terms(positive_vectors: np.ndarray,
+                      negative_vectors: np.ndarray,
+                      query_vectors: np.ndarray) -> np.ndarray:
+    """Determine which query terms are most likely to be relevant."""
+
+    dist_pos = np.min(
+        cdist(positive_vectors, query_vectors, 'cosine'),
+        axis=0
+    )
+    dist_neg = np.min(
+        cdist(negative_vectors, query_vectors, 'cosine'),
+        axis=0
+    )
+
+    return np.log(dist_pos/(dist_neg+1e-12))
+
+
 class ScoringModel(object):
     """
     Container for all components of a fitted user scoring model.
@@ -212,7 +233,9 @@ class ScoringModel(object):
         sigma_vectors: np.ndarray,
         positive_vectors: np.ndarray,
         positive_ids: list[str] | None = None,
-        query_vectors: np.ndarray | None = None
+        query_vectors: np.ndarray | None = None,
+        positive_query_vectors: np.ndarray | None = None,
+        query_terms: list[str] | None = None
     ):
         self.logistic_model = logistic_model
         self.P_residual = residual_projection_matrix
@@ -223,29 +246,40 @@ class ScoringModel(object):
         self.positive_vectors = positive_vectors
         self.positive_ids: list[str] = positive_ids or []
         self.query_vectors = query_vectors
+        self.positive_query_vectors = positive_query_vectors
+        self.query_terms = query_terms
 
     @classmethod
     def from_training_data(cls, positive_vectors: np.ndarray,
                                 negative_vectors: np.ndarray,
                                 positive_ids: list[str] | None = None,
-                                query_vectors: np.ndarray | None = None
+                                query_vectors: np.ndarray | None = None,
+                                positive_query_vectors: np.ndarray | None = None,
+                                negative_query_vectors: np.ndarray | None = None,
+                                query_terms: list[str] | None = None
                           ) -> "ScoringModel":
         """
         Train a ScoringModel from the given positive and negative embedding vectors.
 
         Parameters
         ----------
-        positive_vectors : np.ndarray, shape (N_pos, D)
-            Original (unscaled) embedding vectors for the positive (liked) papers.
-        negative_vectors : np.ndarray, shape (N_neg, D)
-            Original (unscaled) embedding vectors for the negative (disliked) papers.
+        positive_vectors : np.ndarray, shape (N_pos, D_rec)
+            Original (unscaled) recommendation embedding vectors for positive (liked) papers.
+        negative_vectors : np.ndarray, shape (N_neg, D_rec)
+            Original (unscaled) recommendation embedding vectors for negative (disliked) papers.
         positive_ids : list[str] | None
             arXiv IDs corresponding to each row of *positive_vectors*, in the same
             order.  When provided, score_positive_embeddings() results can be mapped
             back to paper IDs without self-similarity bias.
-        query_vectors: np.ndarray, shape (N_query, D) | None
-            Optional original (unscaled) embedding vectors for the query terms that
-            could be related to the user's interests.
+        query_vectors : np.ndarray, shape (N_query, D_query) | None
+            Optional original (unscaled) embedding vectors for the user's search query terms.
+        positive_query_vectors : np.ndarray, shape (N_pos, D_query) | None
+            Optional search-space embedding vectors for the positive papers, aligned
+            row-for-row with *positive_vectors*.  When provided, query features use
+            these instead of the rec-space vectors for cosine comparison against
+            *query_vectors*.
+        negative_query_vectors : np.ndarray, shape (N_neg, D_query) | None
+            Analogous search-space vectors for the negative papers.
         
         Returns
         -------
@@ -262,14 +296,23 @@ class ScoringModel(object):
             sigma_vectors=None,
             positive_vectors=None,
             positive_ids=list(positive_ids) if positive_ids is not None else [],
-            query_vectors=None
+            query_vectors=None,
+            positive_query_vectors=None,
+            query_terms=None
         )
-        model.fit(positive_vectors, negative_vectors, query_vectors=query_vectors)
+        model.fit(positive_vectors, negative_vectors,
+                  query_vectors=query_vectors,
+                  positive_query_vectors=positive_query_vectors,
+                  negative_query_vectors=negative_query_vectors,
+                  query_terms=query_terms)
         return model
 
     def fit(self, positive_vectors: np.ndarray,
                   negative_vectors: np.ndarray,
-                  query_vectors: np.ndarray | None = None
+                  query_vectors: np.ndarray | None = None,
+                  positive_query_vectors: np.ndarray | None = None,
+                  negative_query_vectors: np.ndarray | None = None,
+                  query_terms: list[str] | None = None
            ) -> None:
         """
         Fit the logistic regression model given positive and negative vectors.
@@ -280,13 +323,20 @@ class ScoringModel(object):
 
         Parameters
         ----------
-        positive_vectors : np.ndarray, shape (N_pos, D)
-            Original (unscaled) embedding vectors for the positive (liked) papers.
-        negative_vectors : np.ndarray, shape (N_neg, D)
-            Original (unscaled) embedding vectors for the negative (disliked) papers.
-        query_vectors: np.ndarray, shape (N_query, D) | None
-            Optional original (unscaled) embedding vectors for the query terms that
-            could be related to the user's interests.
+        positive_vectors : np.ndarray, shape (N_pos, D_rec)
+            Original (unscaled) recommendation embedding vectors for positive (liked) papers.
+        negative_vectors : np.ndarray, shape (N_neg, D_rec)
+            Original (unscaled) recommendation embedding vectors for negative (disliked) papers.
+        query_vectors : np.ndarray, shape (N_query, D_query) | None
+            Optional original (unscaled) embedding vectors for the user's search query terms.
+        positive_query_vectors : np.ndarray, shape (N_pos, D_query) | None
+            Optional search-space embedding vectors for the positive papers, aligned
+            row-for-row with *positive_vectors*.  Used instead of rec-space vectors
+            for cosine comparison against *query_vectors* when provided.
+        negative_query_vectors : np.ndarray, shape (N_neg, D_query) | None
+            Analogous search-space vectors for the negative papers.
+        query_terms : list[str] | None
+            Optional list of the user's search query terms corresponding to *query_vectors*.  Used for interpretability of the query-term relevance scores.
         """
 
         # Scale vectors (zero mean, unit variance)
@@ -311,20 +361,42 @@ class ScoringModel(object):
             n_pca_components=RBF_PCA_COMPONENTS,
             P_residual=self.P_residual
         )
-        # Calculate query features for positive vectors
+
+        # Calculate query features for positive and negative vectors.
+        # Use search-space paper vectors (positive_query_vectors) for the cosine
+        # comparison if provided; otherwise fall back to rec-space vectors.
         if query_vectors is not None:
+            # Fall back to rec-space vectors for the RBF features if search-space query vectors aren't provided, since the RBF features are less sensitive to the domain shift and we want to preserve them for scoring even when search-space vectors are unavailable.
+            pos_paper_vecs = positive_query_vectors if positive_query_vectors is not None else positive_vectors
+            neg_paper_vecs = negative_query_vectors if negative_query_vectors is not None else negative_vectors
+
+            # Score the relevance of each query term to the user's positive and negative papers
+            query_relevance = score_query_terms(
+                positive_query_vectors,
+                negative_query_vectors,
+                query_vectors
+            )
+            keep_idx = np.where(query_relevance < 0)[0] # Keep terms that are more similar to the positive papers than the negative papers
+            print(keep_idx)
+
+            query_vectors = query_vectors[keep_idx]
+            query_terms = [query_terms[i] for i in keep_idx]
+            print(query_terms)
+
             query_features_pos = rbf_scoring(
                 RBF_GAMMAS,
                 query_vectors,
-                positive_vectors,
+                pos_paper_vecs,
                 metric='cosine'
             )
             query_features_neg = rbf_scoring(
                 RBF_GAMMAS,
                 query_vectors,
-                negative_vectors,
+                neg_paper_vecs,
                 metric='cosine'
             )
+            # features_pos = query_features_pos
+            # features_neg = query_features_neg
             features_pos = np.concatenate(
                 (features_pos, query_features_pos),
                 axis=1
@@ -345,6 +417,8 @@ class ScoringModel(object):
         print(f'mu_features = {self.mu_features}')
         print(f'sigma_features = {self.sigma_features}')
 
+        # features[:,:2*(len(RBF_GAMMAS)+1)] = 0. # Hack to remove RBF features and force the model to rely on query features for debugging
+
         # print('Positive features (first 5 rows):')
         # print(self.scale_features(features_pos)[:5])
 
@@ -359,7 +433,7 @@ class ScoringModel(object):
         self.logistic_model = LogisticRegression(
             random_state=42,
             class_weight="balanced",
-            C=0.2,
+            C=1.0,
             max_iter=1000
         )
         self.logistic_model.fit(features, y)
@@ -367,6 +441,8 @@ class ScoringModel(object):
         # Store positive and query vectors for later use in scoring
         self.positive_vectors = positive_vectors
         self.query_vectors = query_vectors
+        self.positive_query_vectors = positive_query_vectors
+        self.query_terms = query_terms
 
         self.print_coefficients() # Debugging
     
@@ -420,30 +496,43 @@ class ScoringModel(object):
         vectors_scaled = (vectors - self.mu_vectors[None]) / self.sigma_vectors[None]
         return vectors_scaled
     
-    def _calc_query_features(self, vectors: np.ndarray) -> np.ndarray:
+    def _calc_query_features(
+        self,
+        vectors: np.ndarray,
+        query_vectors_for_papers: np.ndarray | None = None
+    ) -> np.ndarray | None:
         if self.query_vectors is not None:
             # No scaling applied for query-vector comparison, since
             # embeddings are trained to maximize cosine similarity for
             # query vs. relevant documents.
+            # Use search-space paper vectors when provided; fall back to
+            # rec-space vectors otherwise.
+            paper_vecs = query_vectors_for_papers if query_vectors_for_papers is not None else vectors
             features = rbf_scoring(
                 RBF_GAMMAS,
                 self.query_vectors,
-                vectors,
+                paper_vecs,
                 metric='cosine'
             )
             return features
         return None
     
-    def score_embeddings(self, vectors: np.ndarray) -> np.ndarray:
+    def score_embeddings(
+        self,
+        vectors: np.ndarray,
+        query_vectors_for_papers: np.ndarray | None = None
+    ) -> np.ndarray:
         """
         Apply the fitted model to score the given embedding vectors.
 
-        The input *vectors* must be in the original (unscaled) embedding space.
-
         Parameters
         ----------
-        vectors : np.ndarray, shape (N_eval, D)
-            Original (unscaled) embedding vectors for the papers to score.
+        vectors : np.ndarray, shape (N_eval, D_rec)
+            Original (unscaled) recommendation embedding vectors for the papers to score.
+        query_vectors_for_papers : np.ndarray, shape (N_eval, D_query) | None
+            Optional search-space embedding vectors for the same papers, aligned
+            row-for-row with *vectors*.  When provided, query features use these
+            instead of *vectors* for cosine comparison against the stored query terms.
         
         Returns
         -------
@@ -460,11 +549,16 @@ class ScoringModel(object):
 
         # If user query vectors are available, calculate features
         if self.query_vectors is not None:
-            query_features = self._calc_query_features(vectors)
+            query_features = self._calc_query_features(vectors, query_vectors_for_papers)
             features = np.concatenate((features, query_features), axis=1)
+            # features = query_features
         
         # Scale features using the training data statistics
         features = self.scale_features(features)
+        
+        # print(np.any(~np.isfinite(features))) # Debugging: check for NaNs or infs in features
+
+        # features[:,:2*(len(RBF_GAMMAS)+1)] = 0. # Hack to remove RBF features and force the model to rely on query features for debugging
 
         # Input features into Logistic Regression model
         ln_prob = self.logistic_model.predict_log_proba(features)[:, 1]
@@ -491,9 +585,12 @@ class ScoringModel(object):
             P_residual=self.P_residual
         )
 
-        # If user query vectors are available, calculate features
+        # If user query vectors are available, calculate features.
+        # Use stored positive_query_vectors (search-space) when available.
         if self.query_vectors is not None:
-            query_features = self._calc_query_features(self.positive_vectors)
+            query_features = self._calc_query_features(
+                self.positive_vectors, self.positive_query_vectors
+            )
             features = np.concatenate((features, query_features), axis=1)
         
         features = self.scale_features(features)
@@ -522,7 +619,12 @@ class ScoringModel(object):
             "query_vectors": (
                 self.query_vectors.tolist()
                 if self.query_vectors is not None else None
-            )
+            ),
+            "positive_query_vectors": (
+                self.positive_query_vectors.tolist()
+                if self.positive_query_vectors is not None else None
+            ),
+            "query_terms": self.query_terms
         }
     
     @classmethod
@@ -553,7 +655,12 @@ class ScoringModel(object):
             query_vectors=(
                 np.array(data["query_vectors"])
                 if data.get("query_vectors") is not None else None
-            )
+            ),
+            positive_query_vectors=(
+                np.array(data["positive_query_vectors"])
+                if data.get("positive_query_vectors") is not None else None
+            ),
+            query_terms=data.get("query_terms", None)
         )
 
 def serialize_logistic_regression_model(model: LogisticRegression) -> dict:
@@ -610,6 +717,8 @@ def compute_model_hash(liked_ids: list[str],
         + json.dumps(sorted(disliked_ids))
         + json.dumps(sorted(query_terms))
         + str(RECOMMENDATION_EMBEDDING_DIM)
+        + str(QUERY_VECTOR_DIM)
+        + json.dumps(RBF_GAMMAS.tolist())
         + SCORING_VERSION
     )
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
