@@ -215,6 +215,18 @@ def score_query_terms(positive_vectors: np.ndarray,
     return np.log(dist_pos/(dist_neg+1e-12))
 
 
+def cosine_dist_from_center(center: np.ndarray, vectors: np.ndarray) -> np.ndarray:
+    """Calculate cosine distance from a center vector."""
+    center_norm = max(np.linalg.norm(center), 1e-12)
+    vectors_norm = np.clip(
+        np.linalg.norm(vectors, axis=1),
+        a_min=1e-12, a_max=None
+    )
+    cosine_sim = (vectors @ center) / (vectors_norm * center_norm)
+    cosine_sim.shape = (-1,1)
+    return 1 - cosine_sim
+
+
 class ScoringModel(object):
     """
     Container for all components of a fitted user scoring model.
@@ -235,7 +247,9 @@ class ScoringModel(object):
         positive_ids: list[str] | None = None,
         query_vectors: np.ndarray | None = None,
         positive_query_vectors: np.ndarray | None = None,
-        query_terms: list[str] | None = None
+        query_terms: list[str] | None = None,
+        pos_center: np.ndarray | None = None,
+        neg_center: np.ndarray | None = None
     ):
         self.logistic_model = logistic_model
         self.P_residual = residual_projection_matrix
@@ -248,6 +262,8 @@ class ScoringModel(object):
         self.query_vectors = query_vectors
         self.positive_query_vectors = positive_query_vectors
         self.query_terms = query_terms
+        self.pos_center = pos_center
+        self.neg_center = neg_center
 
     @classmethod
     def from_training_data(cls, positive_vectors: np.ndarray,
@@ -256,7 +272,7 @@ class ScoringModel(object):
                                 query_vectors: np.ndarray | None = None,
                                 positive_query_vectors: np.ndarray | None = None,
                                 negative_query_vectors: np.ndarray | None = None,
-                                query_terms: list[str] | None = None
+                                query_terms: list[str] | None = None,
                           ) -> "ScoringModel":
         """
         Train a ScoringModel from the given positive and negative embedding vectors.
@@ -298,7 +314,9 @@ class ScoringModel(object):
             positive_ids=list(positive_ids) if positive_ids is not None else [],
             query_vectors=None,
             positive_query_vectors=None,
-            query_terms=None
+            query_terms=None,
+            pos_center=None,
+            neg_center=None
         )
         model.fit(positive_vectors, negative_vectors,
                   query_vectors=query_vectors,
@@ -339,6 +357,16 @@ class ScoringModel(object):
             Optional list of the user's search query terms corresponding to *query_vectors*.  Used for interpretability of the query-term relevance scores.
         """
 
+        pos_features = () # Empty set
+        neg_features = ()
+
+        # Calculate mean positive and negative vectors
+        self.pos_center = np.mean(positive_vectors, axis=0)
+        self.neg_center = np.mean(negative_vectors, axis=0)
+
+        pos_features = pos_features + self._calc_center_features(positive_vectors)
+        neg_features = neg_features + self._calc_center_features(negative_vectors)
+
         # Scale vectors (zero mean, unit variance)
         vectors = np.concatenate((positive_vectors, negative_vectors), axis=0)
         self.mu_vectors = np.mean(vectors, axis=0)
@@ -349,18 +377,20 @@ class ScoringModel(object):
         v_neg = self.scale_vectors(negative_vectors)
 
         # Calculate RBF features for negative vectors
-        features_neg, self.P_residual = calculate_rbf_features(
+        l2_features_neg, self.P_residual = calculate_rbf_features(
             v_pos, v_eval=v_neg,
             gammas=RBF_GAMMAS,
             n_pca_components=RBF_PCA_COMPONENTS
         )
         # Calculate RBF features for positive vectors (avoiding self-comparisons)
-        features_pos, _ = calculate_rbf_features(
+        l2_features_pos, _ = calculate_rbf_features(
             v_pos, v_eval=v_pos,
             gammas=RBF_GAMMAS,
             n_pca_components=RBF_PCA_COMPONENTS,
             P_residual=self.P_residual
         )
+        pos_features = pos_features + (l2_features_pos,)
+        neg_features = neg_features + (l2_features_neg,)
 
         # Calculate query features for positive and negative vectors.
         # Use search-space paper vectors (positive_query_vectors) for the cosine
@@ -397,17 +427,17 @@ class ScoringModel(object):
             )
             # features_pos = query_features_pos
             # features_neg = query_features_neg
-            features_pos = np.concatenate(
-                (features_pos, query_features_pos),
-                axis=1
-            )
-            features_neg = np.concatenate(
-                (features_neg, query_features_neg),
-                axis=1
-            )
+            pos_features = pos_features + (query_features_pos,)
+            neg_features = neg_features + (query_features_neg,)
+        
+        print([x.shape for x in pos_features])
+        print([x.shape for x in neg_features])
+        
+        pos_features = np.concatenate(pos_features, axis=1)
+        neg_features = np.concatenate(neg_features, axis=1)
         
         # Concatenate features along the sample dimension
-        features = np.concatenate((features_pos, features_neg), axis=0)
+        features = np.concatenate((pos_features, neg_features), axis=0)
         
         # Scale features (zero mean, unit variance)
         self.mu_features = features.mean(axis=0)
@@ -433,10 +463,14 @@ class ScoringModel(object):
         self.logistic_model = LogisticRegression(
             random_state=42,
             class_weight="balanced",
-            C=1.0,
+            C=0.5,
             max_iter=1000
         )
         self.logistic_model.fit(features, y)
+
+        # Report model accuracy on the training data for debugging (should be close to 100%)
+        train_acc = self.logistic_model.score(features, y)
+        print(f"Training accuracy: {train_acc: >7.4%}")
 
         # Store positive and query vectors for later use in scoring
         self.positive_vectors = positive_vectors
@@ -448,20 +482,27 @@ class ScoringModel(object):
     
     def print_coefficients(self):
         # Print regression coefficients for debugging
-        # Need to show both the max_sim and logsumexp features for each gamma
-        # and the full-space and residual features separately to understand what the model is doing.
+
+        coeffs = self.logistic_model.coef_[0]
+
         print("Logistic regression coefficients:")
+        print(f"positive center cosine dist: {coeffs[0]: >+9.5f}")
+        print(f"negative center cosine dist: {coeffs[1]: >+9.5f}")
+
         print('gamma  coeff_full  coeff_res   coeff_query')
         print('-----  ----------  ----------  ------------')
 
-        # Extract different categories of coefficients for clarity
+
+        # For each gamma, show the max_sim, mean features, and query features.
+        # First, extract different categories of coefficients for clarity.
+        coeffs = coeffs[2:] # Skip center cosine distance coefficients
         n_f = 1 + len(RBF_GAMMAS)  # Number of full-space features
-        coeff_full = self.logistic_model.coef_[0, :n_f]
-        coeff_res = self.logistic_model.coef_[0, n_f:2*n_f]
+        coeff_full = coeffs[:n_f]
+        coeff_res = coeffs[n_f:2*n_f]
         coeff_query = (
             np.full_like(coeff_res, np.nan)
             if self.query_vectors is None else
-            self.logistic_model.coef_[0, 2*n_f:]
+            coeffs[2*n_f:]
         )
 
         # Print features in order from largest to smallest scales
@@ -517,6 +558,26 @@ class ScoringModel(object):
             return features
         return None
     
+    def _calc_center_features(self, vectors: np.ndarray) -> np.ndarray:
+        """
+        Calculate cosine distance from the positive and negative centers as features.
+
+        Parameters
+        ----------
+        vectors : np.ndarray, shape (N, D)
+            Original (unscaled) embedding vectors to calculate features for.
+        
+        Returns
+        -------
+        tuple of np.ndarray
+            Tuple containing two arrays of shape (N, 1): (pos_center_features, neg_center_features).
+              pos_center_features: cosine distance from the positive center.
+              neg_center_features: cosine distance from the negative center.
+        """
+        pos_center_features = cosine_dist_from_center(self.pos_center, vectors)
+        neg_center_features = cosine_dist_from_center(self.neg_center, vectors)
+        return (pos_center_features, neg_center_features)
+    
     def score_embeddings(
         self,
         vectors: np.ndarray,
@@ -539,19 +600,26 @@ class ScoringModel(object):
         np.ndarray, shape (N_eval,)
             ln P(relevant) scores for each input vector. Higher = more recommended.
         """
-        # Calculate features vs. positive vectors
-        features, _ = calculate_rbf_features(
+        # Calculate center features
+        features = self._calc_center_features(vectors)
+
+        l2_features, _ = calculate_rbf_features(
             self.scale_vectors(self.positive_vectors),
             v_eval=self.scale_vectors(vectors),
             gammas=RBF_GAMMAS,
             P_residual=self.P_residual
         )
+        features = features + (l2_features,)
 
         # If user query vectors are available, calculate features
         if self.query_vectors is not None:
             query_features = self._calc_query_features(vectors, query_vectors_for_papers)
-            features = np.concatenate((features, query_features), axis=1)
+            features = features + (query_features,)
+            # features = np.concatenate((features, query_features), axis=1)
             # features = query_features
+        
+        # Concatenate features along the feature dimension
+        features = np.concatenate(features, axis=1)
         
         # Scale features using the training data statistics
         features = self.scale_features(features)
@@ -578,12 +646,17 @@ class ScoringModel(object):
         np.ndarray, shape (N_pos,)
             ln P(relevant) scores for each positive vector. Higher = more recommended.
         """
-        features, _ = calculate_rbf_features(
+        # Calculate center features
+        features = self._calc_center_features(self.positive_vectors)
+
+        # Calculate l2 distance features vs. positive vectors, avoiding self-comparisons
+        l2_features, _ = calculate_rbf_features(
             self.scale_vectors(self.positive_vectors),
             v_eval=None, # Avoid self-comparisons by passing None
             gammas=RBF_GAMMAS,
             P_residual=self.P_residual
         )
+        features = features + (l2_features,)
 
         # If user query vectors are available, calculate features.
         # Use stored positive_query_vectors (search-space) when available.
@@ -591,7 +664,10 @@ class ScoringModel(object):
             query_features = self._calc_query_features(
                 self.positive_vectors, self.positive_query_vectors
             )
-            features = np.concatenate((features, query_features), axis=1)
+            features = features + (query_features,)
+
+        # Concatenate features along the feature dimension
+        features = np.concatenate(features, axis=1)
         
         features = self.scale_features(features)
         ln_prob = self.logistic_model.predict_log_proba(features)[:, 1]
@@ -624,7 +700,9 @@ class ScoringModel(object):
                 self.positive_query_vectors.tolist()
                 if self.positive_query_vectors is not None else None
             ),
-            "query_terms": self.query_terms
+            "query_terms": self.query_terms,
+            "pos_center": self.pos_center.tolist(),
+            "neg_center": self.neg_center.tolist(),
         }
     
     @classmethod
@@ -660,7 +738,9 @@ class ScoringModel(object):
                 np.array(data["positive_query_vectors"])
                 if data.get("positive_query_vectors") is not None else None
             ),
-            query_terms=data.get("query_terms", None)
+            query_terms=data.get("query_terms", None),
+            pos_center=np.array(data["pos_center"]),
+            neg_center=np.array(data["neg_center"]),
         )
 
 def serialize_logistic_regression_model(model: LogisticRegression) -> dict:
