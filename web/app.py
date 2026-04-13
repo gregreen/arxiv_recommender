@@ -9,6 +9,7 @@ Or from the project root:
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -25,12 +26,10 @@ from web.routers import admin, auth, papers, recommendations, search, users
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.basicConfig(level=logging.DEBUG)
-    if not SECRET_KEY:
-        import warnings
-        warnings.warn(
-            "SECRET_KEY is not set. JWTs will be signed with an empty key — "
-            "do not run this in production without setting SECRET_KEY.",
-            stacklevel=2,
+    if not SECRET_KEY or len(SECRET_KEY) < 32:
+        raise RuntimeError(
+            "SECRET_KEY must be set to a random string of at least 32 characters. "
+            "Generate one with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
         )
     init_app_db()
     yield
@@ -45,15 +44,18 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+    _cors_origins_env = os.environ.get("CORS_ALLOW_ORIGINS", "")
+    _cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+    if not _cors_origins:
+        # Development fallback — set CORS_ALLOW_ORIGINS in production
+        _cors_origins = ["http://localhost:5173", "http://localhost:3000"]
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:5173",  # Vite dev server
-            "http://localhost:3000",
-        ],
+        allow_origins=_cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
+        allow_headers=["Content-Type", "Authorization"],
     )
 
     app.include_router(auth.router,            prefix="/api")

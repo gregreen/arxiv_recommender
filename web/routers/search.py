@@ -4,6 +4,7 @@ Search endpoint.
 POST /api/search
 """
 
+import logging
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -15,6 +16,7 @@ from web.dependencies import get_current_user, get_db
 from web.limiter import limiter
 
 router = APIRouter(prefix="/search", tags=["search"])
+log = logging.getLogger(__name__)
 
 
 class SearchRequest(BaseModel):
@@ -33,9 +35,10 @@ def search(
     try:
         results = search_papers(db, user["id"], body.query)
     except SearchEmbeddingError as exc:
+        log.error("search: embedding service error for user %s: %s", user["id"], exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Embedding service unavailable: {exc}",
+            detail="Embedding service temporarily unavailable.",
         ) from exc
 
     return results

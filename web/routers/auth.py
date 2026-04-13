@@ -63,15 +63,14 @@ class ResendVerificationRequest(BaseModel):
 
 
 @router.post("/register", status_code=status.HTTP_202_ACCEPTED)
-def register(body: RegisterRequest, db: sqlite3.Connection = Depends(get_db)):
+@limiter.limit("5/hour")
+def register(request: Request, body: RegisterRequest, db: sqlite3.Connection = Depends(get_db)):
     existing = db.execute(
         "SELECT id FROM users WHERE email = ?", (body.email,)
     ).fetchone()
     if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="An account with that email already exists.",
-        )
+        # Return the same generic 202 to prevent email enumeration.
+        return {"message": "Registration received. Please check your email to verify your account."}
     if len(body.password) < 8:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -156,7 +155,8 @@ def logout(response: Response):
 
 
 @router.get("/verify-email")
-def verify_email(token: str, db: sqlite3.Connection = Depends(get_db)):
+@limiter.limit("5/hour")
+def verify_email(request: Request, token: str, db: sqlite3.Connection = Depends(get_db)):
     row = db.execute(
         """SELECT id, email_verified, email_verify_token_expires_at
            FROM users WHERE email_verify_token = ?""",
@@ -200,7 +200,8 @@ def verify_email(token: str, db: sqlite3.Connection = Depends(get_db)):
 
 
 @router.post("/resend-verification", status_code=status.HTTP_200_OK)
-def resend_verification(body: ResendVerificationRequest, db: sqlite3.Connection = Depends(get_db)):
+@limiter.limit("5/hour")
+def resend_verification(request: Request, body: ResendVerificationRequest, db: sqlite3.Connection = Depends(get_db)):
     # Always return 200 with the same message to prevent email enumeration.
     _generic_ok = {"message": "If that address is registered and awaiting verification, a new email has been sent."}
 
