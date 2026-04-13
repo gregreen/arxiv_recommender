@@ -283,9 +283,10 @@ def get_or_train_model(
         pos_ids_list = [
             aid for aid in liked_rec_vectors if aid in liked_search_vectors
         ]
-        neg_rec_all    = {**background_rec_vectors, **disliked_rec_vectors}
-        neg_search_all = {**background_search_vectors, **disliked_search_vectors}
+        neg_rec_all    = {**disliked_rec_vectors, **background_rec_vectors}
+        neg_search_all = {**disliked_search_vectors, **background_search_vectors}
         neg_ids        = [aid for aid in neg_rec_all if aid in neg_search_all]
+        n_explicit_negatives = sum(1 for aid in neg_ids if aid in disliked_rec_vectors)
 
         v_pos_query = np.array(
             [liked_search_vectors[aid] for aid in pos_ids_list], dtype=np.float32
@@ -296,8 +297,9 @@ def get_or_train_model(
         v_neg_list = [neg_rec_all[aid] for aid in neg_ids]
     else:
         pos_ids_list = [aid for aid in liked_rec_vectors]
-        neg_rec_all  = {**background_rec_vectors, **disliked_rec_vectors}
+        neg_rec_all  = {**disliked_rec_vectors, **background_rec_vectors}
         neg_ids      = list(neg_rec_all.keys())
+        n_explicit_negatives = sum(1 for aid in neg_ids if aid in disliked_rec_vectors)
         v_neg_list   = list(neg_rec_all.values())
         v_pos_query  = None
         v_neg_query  = None
@@ -324,7 +326,8 @@ def get_or_train_model(
         query_vectors=query_vectors,
         positive_query_vectors=v_pos_query,
         negative_query_vectors=v_neg_query,
-        query_terms=query_terms_with_embeddings
+        query_terms=query_terms_with_embeddings,
+        n_explicit_negatives=n_explicit_negatives,
     )
 
     # Persist the trained model

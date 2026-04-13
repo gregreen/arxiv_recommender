@@ -74,10 +74,14 @@ with open(os.path.join(BASE_DIR, "recommendation_embedding_prompt.txt")) as f:
 SCORING_VERSION = "v3"
 
 # RBF kernel: gammas are spaced logarithmically.
-RBF_GAMMAS = np.logspace(-6, 4, num=6, base=2)
+RBF_GAMMAS = np.logspace(-4, 4, num=4, base=2)
 
 # Number of SVD components extracted from the positive-vector matrix.
-RBF_PCA_COMPONENTS = 32
+RBF_PCA_COMPONENTS = 8
+
+# Number of dimensions to use when calculating fraction of vector length
+# that resides in the high-variance subspace defined by the positive examples.
+SUBSPACE_FRACTION_DIMS = [4, 8, 16, 32]
 
 # Background negative papers used for training all users' scoring models.
 # A random sample of up to BACKGROUND_NEGATIVE_COUNT papers (excluding any
