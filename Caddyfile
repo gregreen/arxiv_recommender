@@ -11,6 +11,14 @@
 # All other requests serve the React SPA from web/frontend/dist/.
 
 <DOMAIN> {
+    header {
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # KaTeX requires unsafe-inline for styles and data: URIs for fonts.
+        Content-Security-Policy "default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:"
+    }
+
     # Proxy API requests to the uvicorn backend
     handle /api/* {
         reverse_proxy unix//run/arxiv-recommender/app.sock

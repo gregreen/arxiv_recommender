@@ -11,6 +11,7 @@ GET  /api/admin/tasks                  — task_queue entries, filterable
 GET  /api/admin/papers                 — ingested papers, searchable
 """
 
+import json
 import sqlite3
 from typing import Literal
 
@@ -80,6 +81,10 @@ def patch_user(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
     db.execute("UPDATE users SET is_active = ? WHERE id = ?", (int(body.is_active), user_id))
+    db.execute(
+        "INSERT INTO admin_audit_log (admin_id, action, target_id, detail) VALUES (?, ?, ?, ?)",
+        (_admin["id"], "patch_user", user_id, json.dumps({"is_active": body.is_active})),
+    )
     db.commit()
     return {"user_id": user_id, "is_active": body.is_active}
 
@@ -94,6 +99,10 @@ def reset_user_import_log(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
     db.execute("DELETE FROM user_import_log WHERE user_id = ?", (user_id,))
+    db.execute(
+        "INSERT INTO admin_audit_log (admin_id, action, target_id) VALUES (?, ?, ?)",
+        (_admin["id"], "reset_import_log", user_id),
+    )
     db.commit()
 
 
@@ -181,6 +190,10 @@ def reset_task(
         """,
         (task_id,),
     )
+    db.execute(
+        "INSERT INTO admin_audit_log (admin_id, action, target_id) VALUES (?, ?, ?)",
+        (_admin["id"], "reset_task", task_id),
+    )
     db.commit()
     row = db.execute("SELECT * FROM task_queue WHERE id = ?", (task_id,)).fetchone()
     return {
@@ -206,6 +219,10 @@ def delete_task(
     cur = db.execute("DELETE FROM task_queue WHERE id = ?", (task_id,))
     if cur.rowcount == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found.")
+    db.execute(
+        "INSERT INTO admin_audit_log (admin_id, action, target_id) VALUES (?, ?, ?)",
+        (_admin["id"], "delete_task", task_id),
+    )
     db.commit()
 
 

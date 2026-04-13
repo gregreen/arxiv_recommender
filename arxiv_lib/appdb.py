@@ -141,6 +141,16 @@ CREATE TABLE IF NOT EXISTS user_search_terms (
     last_searched_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (user_id, query)
 );
+
+-- Audit log for admin actions
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    admin_id   INTEGER NOT NULL REFERENCES users(id),
+    action     TEXT    NOT NULL,
+    target_id  INTEGER,
+    detail     TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 

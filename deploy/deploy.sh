@@ -89,6 +89,10 @@ find "$PROJECT_DIR/web/frontend/dist" -type f -exec chmod 644 {} +
 if [[ -f "$PROJECT_DIR/app.db" ]]; then
     chown "$USER":"$USER" "$PROJECT_DIR/app.db"
     chmod 600 "$PROJECT_DIR/app.db"
+    # Secure WAL-mode companion files if present
+    for f in "$PROJECT_DIR/app.db-wal" "$PROJECT_DIR/app.db-shm"; do
+        [[ -f "$f" ]] && chown "$USER":"$USER" "$f" && chmod 600 "$f"
+    done
 fi
 
 # api_keys.json, llm_config.json: owner-only (contain secrets)

@@ -1,4 +1,5 @@
 import { memo } from "react";
+import DOMPurify from "dompurify";
 import katex from "katex";
 
 // Split text into alternating plain/math segments.
@@ -21,7 +22,8 @@ function tokenize(text: string): { type: "text" | "display" | "inline"; value: s
 
 function renderMath(src: string, display: boolean): string {
   try {
-    return katex.renderToString(src, { displayMode: display, throwOnError: false });
+    const html = katex.renderToString(src, { displayMode: display, throwOnError: false });
+    return DOMPurify.sanitize(html, { USE_PROFILES: { mathMl: true, svg: true } });
   } catch {
     return src;
   }
