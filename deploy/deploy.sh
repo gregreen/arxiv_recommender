@@ -103,11 +103,11 @@ for f in api_keys.json llm_config.json; do
     fi
 done
 
-# ── SECRET_KEY (.env) ──────────────────────────────────────────────────────────
+# ── SECRET_KEY + CORS_ALLOW_ORIGINS (.env) ────────────────────────────────────
 if [[ ! -f "$PROJECT_DIR/.env" ]]; then
-    echo "==> Generating SECRET_KEY..."
+    echo "==> Generating .env..."
     secret=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-    echo "SECRET_KEY=$secret" > "$PROJECT_DIR/.env"
+    printf "SECRET_KEY=%s\nCORS_ALLOW_ORIGINS=https://%s\n" "$secret" "$DOMAIN" > "$PROJECT_DIR/.env"
     chown "$USER":"$USER" "$PROJECT_DIR/.env"
     chmod 600 "$PROJECT_DIR/.env"
     echo
@@ -116,6 +116,11 @@ if [[ ! -f "$PROJECT_DIR/.env" ]]; then
     echo
 else
     echo "==> .env already exists — preserving existing SECRET_KEY."
+    # Add CORS_ALLOW_ORIGINS if not already present
+    if ! grep -q "^CORS_ALLOW_ORIGINS=" "$PROJECT_DIR/.env"; then
+        echo "CORS_ALLOW_ORIGINS=https://$DOMAIN" >> "$PROJECT_DIR/.env"
+        echo "    Added CORS_ALLOW_ORIGINS=https://$DOMAIN to .env"
+    fi
 fi
 
 # ── systemd unit files ─────────────────────────────────────────────────────────
