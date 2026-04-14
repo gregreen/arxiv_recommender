@@ -28,3 +28,17 @@ export async function resendVerification(email: string) {
     body: JSON.stringify({ email }),
   });
 }
+
+export async function requestPasswordReset(email: string) {
+  return apiFetch<{ message: string }>("/api/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function resetPassword(token: string, password: string) {
+  return apiFetch<{ message: string }>("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token, password }),
+  });
+}

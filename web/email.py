@@ -61,3 +61,39 @@ def send_verification_email(to_address: str, token: str) -> None:
     except Exception as exc:
         log.error("Failed to send verification email to %s: %s", to_address, exc)
         raise RuntimeError(f"Failed to send verification email: {exc}") from exc
+
+
+def send_password_reset_email(to_address: str, token: str) -> None:
+    """Send a password-reset email containing a one-time link.
+
+    Raises RuntimeError if the Resend API key is missing or the send fails.
+    """
+    if not VERIFICATION_EMAIL_FROM:
+        raise RuntimeError(
+            "verification.email_from is not set in email_config.json. Cannot send email."
+        )
+    if not APP_BASE_URL:
+        raise RuntimeError(
+            "verification.app_base_url is not set in email_config.json. Cannot send email."
+        )
+
+    _init_resend()
+
+    reset_url = f"{APP_BASE_URL}/reset-password?token={token}"
+
+    try:
+        resend.Emails.send({
+            "from": VERIFICATION_EMAIL_FROM,
+            "to": to_address,
+            "subject": "Reset your arXiv Recommender password",
+            "html": (
+                "<p>We received a request to reset your arXiv Recommender password. "
+                "Click the link below to set a new password. The link expires in 1 hour.</p>"
+                f'<p><a href="{reset_url}">{reset_url}</a></p>'
+                "<p>If you did not request a password reset, you can safely ignore this email. "
+                "Your password has not been changed.</p>"
+            ),
+        })
+    except Exception as exc:
+        log.error("Failed to send password reset email to %s: %s", to_address, exc)
+        raise RuntimeError(f"Failed to send password reset email: {exc}") from exc

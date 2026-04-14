@@ -184,6 +184,16 @@ def init_app_db(path: str = APP_DB_PATH) -> None:
     con = sqlite3.connect(path)
     try:
         con.executescript(_SCHEMA_SQL)
+        # Migrations: columns added after initial schema deployment.
+        for stmt in [
+            "ALTER TABLE users ADD COLUMN password_reset_token TEXT",
+            "ALTER TABLE users ADD COLUMN password_reset_token_expires_at TEXT",
+        ]:
+            try:
+                con.execute(stmt)
+                con.commit()
+            except sqlite3.OperationalError:
+                pass  # column already exists
     finally:
         con.close()
 

@@ -1,5 +1,5 @@
 """
-Auth endpoints: register, login, logout, email verification.
+Auth endpoints: register, login, logout, email verification, password reset.
 
 POST /api/auth/register              — create account
 POST /api/auth/login                 — verify credentials and set JWT cookie
@@ -7,6 +7,8 @@ POST /api/auth/logout                — clear JWT cookie
 GET  /api/auth/verify-email          — consume a verification token
 POST /api/auth/resend-verification   — resend the verification email (with exponential cooldown)
 GET  /api/auth/me                    — return the current user's profile
+POST /api/auth/forgot-password       — send a password-reset email
+POST /api/auth/reset-password        — consume a reset token and set a new password
 """
 
 import logging
@@ -22,7 +24,7 @@ from slowapi.util import get_remote_address
 from arxiv_lib.config import EMAIL_VERIFICATION_ENABLED
 from web.auth import create_access_token, hash_password, verify_password
 from web.dependencies import get_current_user, get_db
-from web.email import send_verification_email
+from web.email import send_password_reset_email, send_verification_email
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +50,11 @@ def _next_resend_at(resend_count: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
 
 
+def _reset_token_expiry() -> str:
+    """Return an ISO 8601 UTC string 1 hour from now."""
+    return (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+
+
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
@@ -60,6 +67,15 @@ class LoginRequest(BaseModel):
 
 class ResendVerificationRequest(BaseModel):
     email: EmailStr
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str
 
 
 @router.post("/register", status_code=status.HTTP_202_ACCEPTED)
@@ -267,4 +283,94 @@ def me(user=Depends(get_current_user)):
         "is_admin": bool(user["is_admin"]),
         "email_verified": bool(user["email_verified"]),
     }
+
+
+@router.post("/forgot-password", status_code=status.HTTP_200_OK)
+@limiter.limit("4/hour")
+@limiter.limit("8/day")
+def forgot_password(
+    request: Request,
+    body: ForgotPasswordRequest,
+    db: sqlite3.Connection = Depends(get_db),
+):
+    # Always return 200 with a generic message to prevent email enumeration.
+    _generic_ok = {"message": "If that email address is registered, a password reset link has been sent."}
+
+    if not EMAIL_VERIFICATION_ENABLED:
+        return _generic_ok
+
+    row = db.execute(
+        "SELECT id FROM users WHERE email = ?", (body.email,)
+    ).fetchone()
+    if row is None:
+        return _generic_ok
+
+    token = _generate_verify_token()
+    expiry = _reset_token_expiry()
+    db.execute(
+        """UPDATE users
+           SET password_reset_token = ?,
+               password_reset_token_expires_at = ?
+           WHERE id = ?""",
+        (token, expiry, row["id"]),
+    )
+    db.commit()
+
+    try:
+        send_password_reset_email(body.email, token)
+    except RuntimeError as exc:
+        log.error("forgot_password: email send failed for %s: %s", body.email, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not send password reset email. Please try again later.",
+        )
+
+    return _generic_ok
+
+
+@router.post("/reset-password", status_code=status.HTTP_200_OK)
+@limiter.limit("4/hour")
+@limiter.limit("8/day")
+def reset_password(
+    request: Request,
+    body: ResetPasswordRequest,
+    db: sqlite3.Connection = Depends(get_db),
+):
+    if len(body.password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Password must be at least 8 characters.",
+        )
+
+    row = db.execute(
+        """SELECT id, password_reset_token_expires_at
+           FROM users WHERE password_reset_token = ?""",
+        (body.token,),
+    ).fetchone()
+
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token.",
+        )
+
+    expires_at = datetime.fromisoformat(row["password_reset_token_expires_at"])
+    if datetime.now(timezone.utc) > expires_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token.",
+        )
+
+    db.execute(
+        """UPDATE users
+           SET password_hash = ?,
+               email_verified = 1,
+               is_active = 1,
+               password_reset_token = NULL,
+               password_reset_token_expires_at = NULL
+           WHERE id = ?""",
+        (hash_password(body.password), row["id"]),
+    )
+    db.commit()
+    return {"message": "Password reset successfully. You can now sign in with your new password."}
 
