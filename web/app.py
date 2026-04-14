@@ -11,9 +11,11 @@ Or from the project root:
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -64,6 +66,12 @@ def create_app() -> FastAPI:
     app.include_router(recommendations.router, prefix="/api")
     app.include_router(search.router,          prefix="/api")
     app.include_router(admin.router,           prefix="/api")
+
+    # Serve the React SPA for all non-API routes. Only mounted when the dist/
+    # directory exists, so local development without a built frontend still works.
+    _dist = Path(__file__).parent / "frontend" / "dist"
+    if _dist.exists():
+        app.mount("/", StaticFiles(directory=_dist, html=True), name="frontend")
 
     return app
 

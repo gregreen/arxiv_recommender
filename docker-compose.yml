@@ -1,0 +1,98 @@
+# docker-compose.yml — arXiv Recommender
+#
+# Prerequisites (on the server):
+#   1. Copy your secret files:
+#        scp api_keys.json user@server:/srv/arxiv-recommender/
+#        scp email_config.json user@server:/srv/arxiv-recommender/
+#   2. Create .env:
+#        SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+#        DOMAIN=yourdomain.com
+#        CORS_ALLOW_ORIGINS=https://yourdomain.com
+#
+# First deploy / update:
+#   docker compose up -d --build
+
+services:
+
+  # ── API server ───────────────────────────────────────────────────────────────
+  api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    env_file: .env
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      - data:/app/data
+      - ./api_keys.json:/app/api_keys.json:ro
+      - ./email_config.json:/app/email_config.json:ro
+    # Ofelia reads these labels to schedule periodic jobs inside this container.
+    labels:
+      ofelia.enabled: "true"
+      ofelia.job-exec.daily-ingest.schedule: "0 30 21 * * 1-5"
+      ofelia.job-exec.daily-ingest.command: "python3 scripts/cron_daily.py"
+      ofelia.job-exec.daily-ingest.timezone: "America/New_York"
+      ofelia.job-exec.cleanup.schedule: "0 0 3 * * *"
+      ofelia.job-exec.cleanup.command: "python3 scripts/cleanup_embeddings.py"
+      ofelia.job-exec.cleanup.timezone: "America/New_York"
+
+  # ── Metadata daemon ──────────────────────────────────────────────────────────
+  meta-daemon:
+    build: .
+    restart: unless-stopped
+    command: python3 daemons/meta_daemon.py
+    env_file: .env
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      - data:/app/data
+      - ./api_keys.json:/app/api_keys.json:ro
+
+  # ── Embedding daemon ─────────────────────────────────────────────────────────
+  embed-daemon:
+    build: .
+    restart: unless-stopped
+    command: python3 daemons/embed_daemon.py
+    env_file: .env
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      - data:/app/data
+      - ./api_keys.json:/app/api_keys.json:ro
+
+  # ── Caddy (TLS-terminating reverse proxy) ───────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile.docker:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+
+  # ── Scheduler (runs cron_daily.py and cleanup_embeddings.py) ────────────────
+  scheduler:
+    image: mcuadros/ofelia:latest
+    restart: unless-stopped
+    depends_on:
+      - api
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+volumes:
+  # 'data' is a Docker-managed named volume. Docker stores it at:
+  #   /var/lib/docker/volumes/<project>_data/_data/
+  # To use a fixed, human-accessible host path instead, remove this entry and
+  # replace all 'data:/app/data' volume mounts above with a bind mount, e.g.:
+  #   - /srv/arxiv-recommender/data:/app/data
+  data:          # app.db, embeddings_cache.db, and all cache directories
+  caddy-data:    # Caddy TLS certificates (persisted across restarts)
+  caddy-config:  # Caddy runtime config

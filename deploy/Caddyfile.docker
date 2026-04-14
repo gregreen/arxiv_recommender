@@ -1,0 +1,20 @@
+# Caddyfile for Docker deployment
+#
+# Used by the 'caddy' service in docker-compose.yml.
+# DOMAIN is injected from the .env file via the environment block in compose.
+# Caddy automatically provisions a Let's Encrypt TLS certificate for the domain.
+#
+# All requests are proxied to the 'api' container (FastAPI serves both the
+# REST API under /api/ and the React SPA for all other routes).
+
+{env.DOMAIN} {
+    header {
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # KaTeX requires unsafe-inline for styles and data: URIs for fonts.
+        Content-Security-Policy "default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:"
+    }
+
+    reverse_proxy api:8000
+}

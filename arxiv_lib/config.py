@@ -15,11 +15,15 @@ import numpy as np
 # BASE_DIR is the project root (one level above this file's package directory).
 BASE_DIR             = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-EMBEDDING_CACHE_DB   = os.path.join(BASE_DIR, "embeddings_cache.db")
-APP_DB_PATH          = os.path.join(BASE_DIR, "app.db")
-SOURCE_CACHE_DIR     = os.path.join(BASE_DIR, "arxiv_source_cache")
-METADATA_CACHE_DIR   = os.path.join(BASE_DIR, "arxiv_metadata_cache")
-SUMMARY_CACHE_DIR    = os.path.join(BASE_DIR, "arxiv_summary_cache")
+# Allow DATA_DIR to be overridden via environment variable (e.g. for Docker,
+# where persistent data lives on a mounted volume rather than the project root).
+_DATA_DIR            = os.environ.get("DATA_DIR", BASE_DIR)
+
+EMBEDDING_CACHE_DB   = os.path.join(_DATA_DIR, "embeddings_cache.db")
+APP_DB_PATH          = os.path.join(_DATA_DIR, "app.db")
+SOURCE_CACHE_DIR     = os.path.join(_DATA_DIR, "arxiv_source_cache")
+METADATA_CACHE_DIR   = os.path.join(_DATA_DIR, "arxiv_metadata_cache")
+SUMMARY_CACHE_DIR    = os.path.join(_DATA_DIR, "arxiv_summary_cache")
 
 # Tokens JSON file (not committed to source control; kept for reference)
 TOKENS_FILE    = os.path.join(BASE_DIR, "tokens.json")

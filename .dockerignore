@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.venv/
+venv/
+
+# Node
+web/frontend/node_modules/
+web/frontend/dist/
+
+# Databases and large binary caches (these live on Docker volumes, not in the image)
+*.db
+*.db-wal
+*.db-shm
+*.npz
+*.npz.bak*
+arxiv_source_cache/
+arxiv_metadata_cache/
+arxiv_summary_cache/
+
+# Secrets (bind-mounted at runtime — must never be baked into the image)
+api_keys.json
+email_config.json
+.env
+
+# Git
+.git/
+.gitignore
+
+# Misc
+*.bak
+*.bak.*
+app.db.bak*
