@@ -1,0 +1,7 @@
+{
+    "verification": {
+        "enabled": true,
+        "email_from": "onboarding@resend.dev",
+        "app_base_url": "http://localhost:5173"
+    }
+}
