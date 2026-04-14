@@ -116,6 +116,11 @@ ONBOARDING_BROWSE_LIMIT = 256
 # are written to the recommendations table.
 MAX_RECOMMENDATIONS_PER_WINDOW = 256
 
+# Maximum number of papers to be scored at once, in order to limit RAM usage. If more
+# than this number of papers need to be scored, they are processed in batches by the
+# scoring model, and the results are concatenated.
+RECOMMENDATION_SCORING_BATCH_SIZE = 512
+
 # Time windows exposed by the recommendations endpoint.
 RECOMMEND_TIME_WINDOWS = ("day", "week", "month")
 

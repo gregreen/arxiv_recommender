@@ -26,6 +26,7 @@ from sklearn.preprocessing import StandardScaler
 from arxiv_lib.config import (
     QUERY_VECTOR_DIM,
     RECOMMENDATION_EMBEDDING_DIM,
+    RECOMMENDATION_SCORING_BATCH_SIZE,
     RBF_GAMMAS,
     RBF_PCA_COMPONENTS,
     SUBSPACE_FRACTION_DIMS,
@@ -351,6 +352,12 @@ class ScoringModel(object):
     feature scalers, plus the SVD projection matrices.  All of these are
     necessary to persist when caching per-user models.
     """
+
+    # Maximum number of papers to score at once, in order to limit RAM usage.
+    # If more than this number of papers need to be scored, they are processed
+    # in batches, and the results are concatenated.
+    batch_size: int = RECOMMENDATION_SCORING_BATCH_SIZE
+
     def __init__(
         self,
         logistic_model: LogisticRegression,
@@ -833,39 +840,50 @@ class ScoringModel(object):
         np.ndarray, shape (N_eval,)
             ln P(relevant) scores for each input vector. Higher = more recommended.
         """
-        # Calculate center features
-        features = self._calc_center_features(vectors)
 
-        # Calculate fraction of vector in high-variance subspace
-        features = features + (self._calc_subspace_fraction_features(vectors),)
+        n_vectors = vectors.shape[0]
+        ln_prob = np.empty(n_vectors, dtype=np.float32)
 
-        # Calculate l2 distance features vs. positive vectors
-        l2_features, _ = calculate_rbf_features(
-            self.scale_vectors(self.positive_vectors),
-            v_eval=self.scale_vectors(vectors),
-            gammas=RBF_GAMMAS,
-            P_residual=self.P_residual
-        )
-        features = features + (l2_features,)
+        # Calculate scores in batches to limit RAM usage, since distance matrices
+        # can become large.
+        for i0 in range(0, n_vectors, self.batch_size):
+            i1 = min(i0 + self.batch_size, n_vectors)
+            v = vectors[i0:i1]
+            q = query_vectors_for_papers[i0:i1] if query_vectors_for_papers is not None else None
 
-        # # Calculate features with respect to explicit negative vectors, if available
-        # explicit_neg_features = self._calc_explicit_negative_features(vectors)
-        # if explicit_neg_features is not None:
-        #     features = features + (explicit_neg_features,)
+            # Calculate center features
+            features = self._calc_center_features(v)
 
-        # If user query vectors are available, calculate features
-        if self.query_vectors is not None:
-            query_features = self._calc_query_features(vectors, query_vectors_for_papers)
-            features = features + (query_features,)
-        
-        # Concatenate features along the feature dimension
-        features = np.concatenate(features, axis=1)
-        
-        # Scale features using the training data statistics
-        features = self.scale_features(features)
+            # Calculate fraction of vector in high-variance subspace
+            features = features + (self._calc_subspace_fraction_features(v),)
 
-        # Input features into Logistic Regression model
-        ln_prob = self.logistic_model.predict_log_proba(features)[:, 1]
+            # Calculate l2 distance features vs. positive vectors
+            l2_features, _ = calculate_rbf_features(
+                self.scale_vectors(self.positive_vectors),
+                v_eval=self.scale_vectors(v),
+                gammas=RBF_GAMMAS,
+                P_residual=self.P_residual
+            )
+            features = features + (l2_features,)
+
+            # # Calculate features with respect to explicit negative vectors, if available
+            # explicit_neg_features = self._calc_explicit_negative_features(vectors)
+            # if explicit_neg_features is not None:
+            #     features = features + (explicit_neg_features,)
+
+            # If user query vectors are available, calculate features
+            if self.query_vectors is not None:
+                query_features = self._calc_query_features(v, q)
+                features = features + (query_features,)
+            
+            # Concatenate features along the feature dimension
+            features = np.concatenate(features, axis=1)
+            
+            # Scale features using the training data statistics
+            features = self.scale_features(features)
+
+            # Input features into Logistic Regression model
+            ln_prob[i0:i1] = self.logistic_model.predict_log_proba(features)[:, 1]
 
         return ln_prob
     
