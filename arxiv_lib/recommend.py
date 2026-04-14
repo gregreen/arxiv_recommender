@@ -42,6 +42,7 @@ from arxiv_lib.config import (
     MAX_LIKED_PAPERS_TO_USE,
     MAX_MODEL_AGE_DAYS,
     MAX_QUERY_TERMS_TO_USE,
+    MAX_RECOMMENDATIONS_PER_WINDOW,
     RECOMMEND_MIN_LIKED,
     RECOMMEND_TIME_WINDOWS,
 )
@@ -438,6 +439,7 @@ def refresh_recommendations(
             continue
         window_scores = [(aid, scores[aid]) for aid in window_ids]
         window_scores.sort(key=lambda x: x[1], reverse=True)
+        window_scores = window_scores[:MAX_RECOMMENDATIONS_PER_WINDOW]
         rows_to_insert = [
             (user_id, aid, window, score, rank, model_hash, generated_at)
             for rank, (aid, score) in enumerate(window_scores, start=1)

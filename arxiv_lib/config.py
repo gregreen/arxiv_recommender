@@ -111,6 +111,11 @@ RECOMMEND_MIN_LIKED = 4
 # Returned in random order so the user sees a varied sample each visit.
 ONBOARDING_BROWSE_LIMIT = 256
 
+# Maximum number of recommendations stored (and returned) per user per time window.
+# Applied at write time in refresh_recommendations(); only the top-scoring papers
+# are written to the recommendations table.
+MAX_RECOMMENDATIONS_PER_WINDOW = 256
+
 # Time windows exposed by the recommendations endpoint.
 RECOMMEND_TIME_WINDOWS = ("day", "week", "month")
 
