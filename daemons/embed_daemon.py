@@ -41,7 +41,7 @@ from arxiv_lib.config import (
     EMBEDDING_CACHE_DB,
     EMBED_INGEST_POLL_INTERVAL,
 )
-from arxiv_lib.ingest import fetch_search_embedding, fetch_recommendation_embedding
+from arxiv_lib.ingest import fetch_search_embedding, fetch_recommendation_embedding, _init_embedding_db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -140,6 +140,7 @@ def main() -> int:
 
     log.info("Starting embed daemon (db=%s)", args.db)
     init_app_db(args.db)
+    _init_embedding_db()
 
     app_con = get_connection(args.db)
     try:
