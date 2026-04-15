@@ -619,7 +619,7 @@ def _softmax_sum(member_scores: list[dict[str, float]]) -> dict[str, float]:
         return {}
 
     group: dict[str, float] = {}
-    # n = len(active)
+    n = len(active)
     lnZ = []
     for scores in active:
         vals = np.array(list(scores.values()))
@@ -633,7 +633,7 @@ def _softmax_sum(member_scores: list[dict[str, float]]) -> dict[str, float]:
     # the group scores are the average of their normalised scores, multiplied
     # by some constant factor.
     p_max = max(group.values())
-    ln_norm = np.nanmin([logsumexp(lnZ), -np.log(p_max)])
+    ln_norm = np.nanmin([logsumexp(lnZ)-np.log(n), -np.log(p_max)])
     norm = np.exp(ln_norm)
 
     # Average over active members
