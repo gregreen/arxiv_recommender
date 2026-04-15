@@ -20,8 +20,6 @@ function PaperRow({ rec, selected, onClick }: PaperRowProps) {
   else likedClass = "bg-white border-gray-200";
   if (selected) likedClass = "bg-blue-50 border-blue-400";
 
-  const title = rec.title.length > 80 ? rec.title.slice(0, 80) + "…" : rec.title;
-
   return (
     <div
       onClick={onClick}

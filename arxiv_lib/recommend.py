@@ -25,11 +25,14 @@ responsible for committing transactions when needed.
 """
 
 import json
+import math
 import random
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
+
+from scipy.special import logsumexp
 
 from arxiv_lib.config import (
     APP_DB_PATH,
@@ -583,3 +586,214 @@ def get_onboarding_papers(
         }
         for row in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Group recommendation aggregation
+# ---------------------------------------------------------------------------
+
+def _softmax_sum(member_scores: list[dict[str, float]]) -> dict[str, float]:
+    """
+    Aggregate per-member score dicts using softmax normalisation + averaging.
+
+    For each member i with cached scores {paper_j: s_ij}:
+      1. p_ij = exp(s_ij)
+      2. Z_i  = sum_j(p_ij)          (normalisation constant)
+      3. norm_ij = p_ij / Z_i         (member's probability distribution over papers)
+    Group score for paper j = mean_i(norm_ij)  (papers absent from a member's
+    cache contribute 0, naturally surfacing papers liked by multiple members).
+
+    Parameters
+    ----------
+    member_scores : list[dict[str, float]]
+        One dict per active member mapping arxiv_id → ln-probability score.
+        Empty dicts (members with no cached scores) are silently skipped.
+
+    Returns
+    -------
+    dict[str, float]
+        Aggregated score per paper (higher = more relevant to the group).
+    """
+    active = [s for s in member_scores if s]
+    if not active:
+        return {}
+
+    group: dict[str, float] = {}
+    n = len(active)
+    lnZ = []
+    for scores in active:
+        vals = np.array(list(scores.values()))
+        lnZ.append(logsumexp(vals))
+        probs = np.exp(vals - lnZ[-1])
+        for aid, p in zip(scores.keys(), probs):
+            group[aid] = group.get(aid, 0.0) + p
+    
+    # This normalization is chosen so that with one member, the group scores
+    # are identical to that member's normalised scores; with multiple members,
+    # the group scores are the average of their normalised scores, multiplied
+    # by some constant factor.
+    p_max = max(group.values())
+    ln_norm = np.nanmin([logsumexp(lnZ)-np.log(n), -np.log(p_max)])
+    norm = np.exp(ln_norm)
+
+    # Average over active members
+    return {aid: v * norm for aid, v in group.items()}
+
+
+def aggregate_group_scores(
+    member_scores: list[dict[str, float]],
+    method: str = "softmax_sum",
+) -> dict[str, float]:
+    """
+    Aggregate per-member recommendation score dicts into a single group score.
+
+    This is the single extension point for adding new aggregation methods
+    (e.g. Reciprocal Rank Fusion) in the future.
+
+    Parameters
+    ----------
+    member_scores : list[dict[str, float]]
+        One dict per active member mapping arxiv_id → score.
+    method : str
+        Aggregation method.  Currently supported: ``"softmax_sum"``.
+
+    Returns
+    -------
+    dict[str, float]
+        Aggregated score per paper.
+
+    Raises
+    ------
+    ValueError
+        If *method* is not recognised.
+    """
+    if method == "softmax_sum":
+        return _softmax_sum(member_scores)
+    raise ValueError(f"Unknown aggregation method: {method!r}")
+
+
+def get_group_recommendations(
+    con: sqlite3.Connection,
+    group_id: int,
+    time_window: str,
+    requesting_user_id: int,
+    method: str = "softmax_sum",
+) -> tuple[list[dict], int, int]:
+    """
+    Return aggregated group recommendations for *group_id* in *time_window*.
+
+    Ensures each member's per-user recommendation cache is up to date (training
+    and refreshing as needed), then aggregates cached scores using *method*.
+    Members who have too few liked papers to generate a model are silently
+    excluded from the aggregation but may still view the results.
+
+    Parameters
+    ----------
+    con : sqlite3.Connection
+        Open app.db connection.
+    group_id : int
+        The group to generate recommendations for.
+    time_window : str
+        One of 'day', 'week', 'month'.
+    requesting_user_id : int
+        User making the request — used to populate the ``liked`` field in
+        results with their personal like/dislike status.
+    method : str
+        Aggregation method passed to ``aggregate_group_scores``.
+
+    Returns
+    -------
+    results : list[dict]
+        Ranked papers in the same shape as ``get_recommendations``, sorted by
+        aggregated score descending and capped at MAX_RECOMMENDATIONS_PER_WINDOW.
+        ``score`` here is the aggregated group score, ``rank`` is 1-based.
+    group_member_count : int
+        Total number of members in the group.
+    active_member_count : int
+        Number of members whose scores contributed to the aggregation (those
+        with enough data to generate a model).
+    """
+    if time_window not in RECOMMEND_TIME_WINDOWS:
+        raise ValueError(f"Unknown time window: {time_window!r}")
+
+    # Load all group members
+    member_rows = con.execute(
+        "SELECT user_id FROM group_members WHERE group_id = ?",
+        (group_id,),
+    ).fetchall()
+    member_ids = [r[0] for r in member_rows]
+    group_member_count = len(member_ids)
+
+    # Ensure each member's recommendation cache is fresh
+    active_member_ids: list[int] = []
+    for uid in member_ids:
+        try:
+            rows = con.execute(
+                "SELECT arxiv_id, liked FROM user_papers WHERE user_id = ? AND liked != 0",
+                (uid,),
+            ).fetchall()
+            liked_ids    = [r[0] for r in rows if r[1] == 1]
+            disliked_ids = [r[0] for r in rows if r[1] == -1]
+            model_hash   = compute_model_hash(liked_ids, disliked_ids)
+            if recommendations_are_stale(con, uid, model_hash):
+                model, model_hash = get_or_train_model(con, uid)
+                refresh_recommendations(con, uid, model, model_hash)
+                con.commit()
+            active_member_ids.append(uid)
+        except NotEnoughDataError:
+            pass  # Member excluded from aggregation silently
+
+    active_member_count = len(active_member_ids)
+
+    if not active_member_ids:
+        return [], group_member_count, 0
+
+    # Load each active member's cached scores for this window
+    member_scores: list[dict[str, float]] = []
+    for uid in active_member_ids:
+        rows = con.execute(
+            "SELECT arxiv_id, score FROM recommendations WHERE user_id = ? AND time_window = ?",
+            (uid, time_window),
+        ).fetchall()
+        member_scores.append({r[0]: r[1] for r in rows})
+
+    # Aggregate
+    aggregated = aggregate_group_scores(member_scores, method)
+    if not aggregated:
+        return [], group_member_count, active_member_count
+
+    # Sort and cap
+    sorted_aids = sorted(aggregated, key=lambda a: aggregated[a], reverse=True)
+    sorted_aids = sorted_aids[:MAX_RECOMMENDATIONS_PER_WINDOW]
+
+    if not sorted_aids:
+        return [], group_member_count, active_member_count
+
+    # Fetch paper metadata + requesting user's liked status
+    placeholders = ",".join("?" * len(sorted_aids))
+    meta_rows = con.execute(
+        f"""
+        SELECT p.arxiv_id, p.title, p.authors, p.published_date, up.liked
+          FROM papers p
+          LEFT JOIN user_papers up
+               ON up.arxiv_id = p.arxiv_id AND up.user_id = ?
+         WHERE p.arxiv_id IN ({placeholders})
+        """,
+        [requesting_user_id] + sorted_aids,
+    ).fetchall()
+    meta = {r[0]: r for r in meta_rows}
+
+    results = []
+    for rank, aid in enumerate(sorted_aids, start=1):
+        row = meta.get(aid)
+        results.append({
+            "arxiv_id":       aid,
+            "title":          row[1] if row else "",
+            "authors":        json.loads(row[2]) if row and row[2] else [],
+            "published_date": row[3] if row else None,
+            "score":          math.log(aggregated[aid]),
+            "rank":           rank,
+            "liked":          row[4] if row else None,
+            "generated_at":   None,  # aggregated on-the-fly, not from a cache timestamp
+        })
+    return results, group_member_count, active_member_count

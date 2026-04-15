@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { useGroups } from "../contexts/GroupsContext";
 
 interface NavMenuProps {
   email: string | undefined;
@@ -10,6 +11,7 @@ interface NavMenuProps {
 export default function NavMenu({ email, onLogout, adminMode = false }: NavMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const { groups } = useGroups();
 
   useEffect(() => {
     if (!open) return;
@@ -22,10 +24,15 @@ export default function NavMenu({ email, onLogout, adminMode = false }: NavMenuP
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
+  const groupsLink = groups.length === 0
+    ? <Link to="/groups/new" className={`text-sm transition-colors ${adminMode ? "text-red-200 hover:text-white" : "text-gray-600 hover:text-gray-900"}`}>Groups</Link>
+    : <Link to="/groups" className={`text-sm transition-colors ${adminMode ? "text-red-200 hover:text-white" : "text-gray-600 hover:text-gray-900"}`}>Groups</Link>;
+
   return (
     <>
       {/* Desktop: email + sign out inline */}
       <div className="hidden md:flex items-center gap-3 ml-auto">
+        {groupsLink}
         <span className={`text-sm truncate max-w-48 ${adminMode ? "text-red-200" : "text-gray-900"}`}>{email}</span>
         <button
           onClick={onLogout}
@@ -57,6 +64,13 @@ export default function NavMenu({ email, onLogout, adminMode = false }: NavMenuP
               className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               About
+            </Link>
+            <Link
+              to={groups.length === 0 ? "/groups/new" : "/groups"}
+              onClick={() => setOpen(false)}
+              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              Groups
             </Link>
             <button
               onClick={() => { setOpen(false); onLogout(); }}

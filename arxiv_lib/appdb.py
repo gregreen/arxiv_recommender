@@ -151,6 +151,40 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
     detail     TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- ── User groups ──────────────────────────────────────────────────────────────
+-- A group is a named collection of users whose recommendation scores are
+-- aggregated to produce shared "group recommendations".
+
+CREATE TABLE IF NOT EXISTS groups (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Each row represents one user's membership in one group.
+-- is_admin=1: this member is the group administrator.
+CREATE TABLE IF NOT EXISTS group_members (
+    group_id  INTEGER NOT NULL REFERENCES groups(id)  ON DELETE CASCADE,
+    user_id   INTEGER NOT NULL REFERENCES users(id)   ON DELETE CASCADE,
+    is_admin  INTEGER NOT NULL DEFAULT 0,
+    joined_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (group_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS group_members_user ON group_members(user_id);
+
+-- Single-use invite tokens.  used_at IS NULL means the invite is still pending.
+CREATE TABLE IF NOT EXISTS group_invites (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id    INTEGER NOT NULL REFERENCES groups(id)  ON DELETE CASCADE,
+    token       TEXT    NOT NULL UNIQUE,
+    created_by  INTEGER NOT NULL REFERENCES users(id),
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    expires_at  TEXT    NOT NULL,
+    used_at     TEXT,
+    used_by     INTEGER REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS group_invites_token ON group_invites(token);
 """
 
 
