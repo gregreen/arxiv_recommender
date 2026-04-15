@@ -81,6 +81,7 @@ services:
   # ── Scheduler (runs cron_daily.py and cleanup_embeddings.py) ────────────────
   scheduler:
     image: mcuadros/ofelia:latest
+    command: daemon --docker
     restart: unless-stopped
     depends_on:
       - api
