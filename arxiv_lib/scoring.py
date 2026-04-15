@@ -519,8 +519,9 @@ class ScoringModel(object):
             np.mean(subspace_frac_pos, axis=0)
             - np.mean(subspace_frac_neg, axis=0)
         )
-        print(scatter)
-        # Add in extra scatter to prevent subspace model from dominating other features
+        # Add in extra scatter to prevent subspace model from dominating other features.
+        # With small numbers of papers, the subspace fraction features can be very effective
+        # at separating positives from negatives, but this generalizes poorly to new papers.
         rng = np.random.default_rng(seed=43)
         subspace_frac_pos += rng.normal(scale=scatter, size=subspace_frac_pos.shape)
         subspace_frac_neg += rng.normal(scale=scatter, size=subspace_frac_neg.shape)
