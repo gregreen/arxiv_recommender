@@ -15,6 +15,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -72,7 +73,15 @@ def create_app() -> FastAPI:
     # directory exists, so local development without a built frontend still works.
     _dist = Path(__file__).parent / "frontend" / "dist"
     if _dist.exists():
-        app.mount("/", StaticFiles(directory=_dist, html=True), name="frontend")
+        # Serve static assets directly; fall back to index.html for SPA routing.
+        app.mount("/assets", StaticFiles(directory=_dist / "assets"), name="assets")
+
+        @app.get("/{full_path:path}")
+        async def serve_spa(full_path: str):
+            file_path = _dist / full_path
+            if file_path.is_file():
+                return FileResponse(file_path)
+            return FileResponse(_dist / "index.html")
 
     return app
 
