@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily arXiv Source Cache Cleanup Timer
+
+[Timer]
+OnCalendar=Mon,Tue,Wed,Thu,Fri,Sat,Sun *-*-* 03:30:00
+Timezone=America/New_York
+Persistent=true
+Unit=arxiv-source-cleanup.service
+
+[Install]
+WantedBy=timers.target

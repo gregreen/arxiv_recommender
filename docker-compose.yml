@@ -36,6 +36,9 @@ services:
       ofelia.job-exec.cleanup.schedule: "0 0 3 * * *"
       ofelia.job-exec.cleanup.command: "python3 scripts/cleanup_embeddings.py"
       ofelia.job-exec.cleanup.timezone: "America/New_York"
+      ofelia.job-exec.source-cleanup.schedule: "0 30 3 * * *"
+      ofelia.job-exec.source-cleanup.command: "python3 scripts/arxiv_source_cleanup.py"
+      ofelia.job-exec.source-cleanup.timezone: "America/New_York"
 
   # ── Metadata daemon ──────────────────────────────────────────────────────────
   meta-daemon:
