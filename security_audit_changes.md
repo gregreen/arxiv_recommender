@@ -7,7 +7,7 @@ the exact change needed, and why.
 
 ## Changes to implement
 
-### 1. Hard-fail on empty or short `SECRET_KEY` at startup
+### ✅ 1. Hard-fail on empty or short `SECRET_KEY` at startup
 
 **File:** `web/app.py`
 
@@ -35,9 +35,13 @@ if not SECRET_KEY or len(SECRET_KEY) < 32:
 an empty key, which can be trivially forged.  A startup crash is the only safe
 behaviour.  The 32-character minimum enforces meaningful entropy.
 
+**Implemented.** `deploy.sh` already auto-generates a 64-hex-char `SECRET_KEY`
+into `.env` on first deploy, so the hard-fail will never trigger in normal
+production use.
+
 ---
 
-### 2. Rate-limit `/register`, `/verify-email`, and `/resend-verification`
+### ✅ 2. Rate-limit `/register`, `/verify-email`, and `/resend-verification`
 
 **File:** `web/routers/auth.py`
 
@@ -83,9 +87,13 @@ needed.
 **Why:** These endpoints have no rate limit, enabling account-creation flooding
 and email-bombing via the resend endpoint.
 
+**Implemented.** Rate set to 5/hour (harder than the originally proposed
+10/hour). `resend_verification` already had its own per-user exponential
+cooldown in addition to this IP-based limit.
+
 ---
 
-### 3. Remove localhost CORS origins and read production origin from environment
+### ✅ 3. Remove localhost CORS origins and read production origin from environment
 
 **File:** `web/app.py`
 
@@ -130,9 +138,13 @@ means any page running on localhost (e.g. a locally-opened malicious HTML file)
 can make credentialed requests to the API.  The wildcard `allow_methods` and
 `allow_headers` are broader than necessary.
 
+**Implemented.** Remember to set `CORS_ALLOW_ORIGINS=https://<domain>` in the
+systemd service environment file (e.g. `/etc/arxiv-recommender/env`) before
+going live.
+
 ---
 
-### 4. Return a generic response for duplicate registration (prevent account enumeration)
+### ✅ 4. Return a generic response for duplicate registration (prevent account enumeration)
 
 **File:** `web/routers/auth.py`
 
@@ -162,9 +174,11 @@ if existing:
 are registered.  Returning the same 202 response as a successful registration
 prevents this.
 
+**Implemented.**
+
 ---
 
-### 5. Don't leak exception details from the search endpoint
+### ✅ 5. Don't leak exception details from the search endpoint
 
 **File:** `web/routers/search.py`
 
@@ -194,9 +208,11 @@ already present, and `import logging`.
 string to the client, which may include internal API endpoint URLs, model names,
 or error response bodies from the embedding provider.
 
+**Implemented.**
+
 ---
 
-### 6. Add security response headers to Caddyfile
+### ✅ 6. Add security response headers to Caddyfile
 
 **File:** `Caddyfile`
 
@@ -230,9 +246,13 @@ directives:
 - `Content-Security-Policy` — restricts which origins can load scripts, styles,
   and other resources, significantly limiting XSS impact.
 
+**Implemented.** CSP includes `style-src 'unsafe-inline'` and `font-src data:`
+required by KaTeX. If KaTeX is ever replaced with a solution that uses external
+CSS, these carve-outs can be removed to tighten the policy further.
+
 ---
 
-### 7. Sanitize KaTeX HTML output with DOMPurify
+### ✅ 7. Sanitize KaTeX HTML output with DOMPurify
 
 **File:** `web/frontend/src/components/MathText.tsx`
 
@@ -270,9 +290,14 @@ data pipeline is ever compromised and injects non-LaTeX content that survives
 the `$...$` tokenizer, DOMPurify will strip any executable HTML before it
 reaches the DOM.
 
+**Implemented.** `npm audit fix` was also run at this point, which updated Vite
+from 8.0.0–8.0.4 to a patched version, fixing 3 high-severity dev-server
+vulnerabilities (path traversal, `fs.deny` bypass, arbitrary file read via
+WebSocket). These only affect the dev server, not production builds.
+
 ---
 
-### 8. Add admin action audit logging
+### ✅ 8. Add admin action audit logging
 
 **File:** `web/routers/admin.py` (and schema)
 
@@ -301,9 +326,14 @@ db.execute(
 accounts or when.  If the admin account were compromised, the actions taken
 would be invisible.
 
+**Implemented.** All four write operations are instrumented: `patch_user`,
+`reset_import_log`, `reset_task`, `delete_task`. The table is created via
+`CREATE TABLE IF NOT EXISTS` so it is safe to deploy against an existing
+database without a migration step.
+
 ---
 
-### 9. Secure SQLite WAL/SHM companion files in deploy script
+### ✅ 9. Secure SQLite WAL/SHM companion files in deploy script
 
 **File:** `deploy/deploy.sh`
 
@@ -332,6 +362,8 @@ database.  These contain live transaction data and are effectively part of the
 database.  If they are created with looser permissions (determined by the
 process umask at creation time), the database contents could be readable by
 other local users.
+
+**Implemented.**
 
 ---
 
