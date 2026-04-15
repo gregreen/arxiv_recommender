@@ -9,6 +9,6 @@ fastapi
 uvicorn[standard]
 slowapi
 PyJWT
-passlib[bcrypt]
+bcrypt
 pydantic[email]
 resend

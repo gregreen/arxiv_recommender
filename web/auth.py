@@ -7,20 +7,29 @@ by management scripts (e.g. activate_user.py) without starting the app.
 
 from datetime import datetime, timedelta, timezone
 
+import hashlib
+
+import bcrypt
 import jwt
-from passlib.context import CryptContext
 
 from arxiv_lib.config import JWT_ALGORITHM, JWT_EXPIRE_HOURS, SECRET_KEY
 
-_crypt = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def _prehash(plain: str) -> bytes:
+    """SHA-256 digest of the password, hex-encoded as bytes.
+
+    Passing a fixed-length digest to bcrypt sidesteps bcrypt's 72-byte input
+    limit while preserving the full entropy of arbitrarily long passwords.
+    """
+    return hashlib.sha256(plain.encode()).hexdigest().encode()
 
 
 def hash_password(plain: str) -> str:
-    return _crypt.hash(plain)
+    return bcrypt.hashpw(_prehash(plain), bcrypt.gensalt()).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return _crypt.verify(plain, hashed)
+    return bcrypt.checkpw(_prehash(plain), hashed.encode())
 
 
 def create_access_token(user_id: int) -> str:
