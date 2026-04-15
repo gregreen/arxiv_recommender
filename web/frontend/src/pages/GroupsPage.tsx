@@ -34,7 +34,10 @@ export default function GroupsPage() {
       </nav>
 
       <div className="max-w-lg mx-auto px-4 py-10">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Groups</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-3">Groups</h1>
+        <p className="text-sm text-gray-500 mb-6">
+          Groups allow multiple users to see their aggregated scores, facilitating research-group or departmental arXiv discussions. After you create a group, you can invite other users to join by sending them invite links.
+        </p>
 
         {isLoading && <p className="text-sm text-gray-400">Loading…</p>}
 

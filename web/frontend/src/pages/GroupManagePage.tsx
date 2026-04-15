@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../AuthContext";
 import { useGroups } from "../contexts/GroupsContext";
 import {
@@ -20,6 +21,7 @@ function InviteRow({ invite, origin, onRevoke }: {
   onRevoke: (id: number) => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [showQr, setShowQr] = useState(false);
   const url = `${origin}/join-group?token=${encodeURIComponent(invite.token)}`;
 
   function handleCopy() {
@@ -32,21 +34,34 @@ function InviteRow({ invite, origin, onRevoke }: {
   const expires = new Date(invite.expires_at).toLocaleDateString();
 
   return (
-    <li className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded px-3 py-2">
-      <span className="font-mono text-xs text-gray-500 truncate flex-1" title={url}>{url}</span>
-      <span className="text-xs text-gray-400 shrink-0">exp {expires}</span>
-      <button
-        onClick={handleCopy}
-        className="shrink-0 text-xs px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white transition-colors"
-      >
-        {copied ? "Copied!" : "Copy"}
-      </button>
-      <button
-        onClick={() => onRevoke(invite.id)}
-        className="shrink-0 text-xs px-2 py-1 rounded bg-gray-200 hover:bg-red-100 hover:text-red-600 text-gray-600 transition-colors"
-      >
-        Revoke
-      </button>
+    <li className="flex flex-col bg-gray-50 border border-gray-200 rounded px-3 py-2 gap-2">
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-xs text-gray-500 truncate flex-1" title={url}>{url}</span>
+        <span className="text-xs text-gray-400 shrink-0">exp {expires}</span>
+        <button
+          onClick={handleCopy}
+          className="shrink-0 text-xs px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+        >
+          {copied ? "Copied!" : "Copy"}
+        </button>
+        <button
+          onClick={() => setShowQr((v) => !v)}
+          className={`shrink-0 text-xs px-2 py-1 rounded transition-colors ${showQr ? "bg-blue-100 text-blue-700 hover:bg-blue-200" : "bg-gray-200 text-gray-600 hover:bg-gray-300"}`}
+        >
+          QR
+        </button>
+        <button
+          onClick={() => onRevoke(invite.id)}
+          className="shrink-0 text-xs px-2 py-1 rounded bg-gray-200 hover:bg-red-100 hover:text-red-600 text-gray-600 transition-colors"
+        >
+          Revoke
+        </button>
+      </div>
+      {showQr && (
+        <div className="flex justify-center py-2">
+          <QRCodeSVG value={url} size={180} />
+        </div>
+      )}
     </li>
   );
 }
