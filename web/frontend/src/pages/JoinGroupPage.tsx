@@ -8,7 +8,7 @@ export default function JoinGroupPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token") ?? "";
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const { refetch } = useGroups();
 
   const [info, setInfo] = useState<JoinInfo | null>(null);
@@ -17,6 +17,7 @@ export default function JoinGroupPage() {
   const [joining, setJoining] = useState(false);
 
   useEffect(() => {
+    if (authLoading) return;
     if (!token) {
       setError("No invite token provided.");
       setLoading(false);
@@ -32,7 +33,7 @@ export default function JoinGroupPage() {
       .then((data) => setInfo(data))
       .catch(() => setError("Invite not found, already used, or expired."))
       .finally(() => setLoading(false));
-  }, [token, user, navigate]);
+  }, [token, user, authLoading, navigate]);
 
   async function handleJoin() {
     setJoining(true);
