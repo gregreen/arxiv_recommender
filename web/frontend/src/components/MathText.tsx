@@ -23,7 +23,7 @@ function tokenize(text: string): { type: "text" | "display" | "inline"; value: s
 function renderMath(src: string, display: boolean): string {
   try {
     const html = katex.renderToString(src, { displayMode: display, throwOnError: false });
-    return DOMPurify.sanitize(html, { USE_PROFILES: { mathMl: true, svg: true } });
+    return DOMPurify.sanitize(html, { USE_PROFILES: { html: true, mathMl: true, svg: true } });
   } catch {
     return src;
   }
