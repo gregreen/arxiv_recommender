@@ -25,6 +25,10 @@ SOURCE_CACHE_DIR     = os.path.join(_DATA_DIR, "arxiv_source_cache")
 METADATA_CACHE_DIR   = os.path.join(_DATA_DIR, "arxiv_metadata_cache")
 SUMMARY_CACHE_DIR    = os.path.join(_DATA_DIR, "arxiv_summary_cache")
 
+# Ensure all data directories exist (important on fresh Docker volumes).
+for _d in (SOURCE_CACHE_DIR, METADATA_CACHE_DIR, SUMMARY_CACHE_DIR):
+    os.makedirs(_d, exist_ok=True)
+
 # Tokens JSON file (not committed to source control; kept for reference)
 TOKENS_FILE    = os.path.join(BASE_DIR, "tokens.json")
 # API keys and LLM configuration (not committed to source control)
