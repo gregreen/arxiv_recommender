@@ -186,7 +186,7 @@ export default function LibraryPage() {
         <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
           <h2 className="font-semibold text-gray-800 mb-3">Import from NASA ADS</h2>
           <p className="text-xs text-gray-500 mb-2">
-            Paste an ADS bibliography export (BibTeX or plain list with arXiv IDs).
+            Export an ADS library using the Custom %X format, and paste the contents below.
           </p>
           {adsError && (
             <div className="mb-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2">
@@ -207,7 +207,7 @@ export default function LibraryPage() {
               value={adsText}
               onChange={(e) => setAdsText(e.target.value)}
               rows={5}
-              placeholder="Paste ADS export text here…"
+              placeholder={"arXiv:1234.56789\narXiv:0123.45678\n..."}
               required
               className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
             />
