@@ -140,7 +140,7 @@ def login(request: Request, body: LoginRequest, response: Response, db: sqlite3.
 
     # email_verified = 0 means verification was requested but not yet completed.
     # (Tokens are retained after verification, so token presence is not a reliable check.)
-    if not row["email_verified"]:
+    if EMAIL_VERIFICATION_ENABLED and not row["email_verified"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="verify_email_pending",
