@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { login, resendVerification } from "../api/auth";
 import { useAuth } from "../AuthContext";
 import { apiFetch, ApiError } from "../api/client";
@@ -13,6 +13,7 @@ export default function LoginPage() {
   const [resendStatus, setResendStatus] = useState<string | null>(null);
   const { setUser } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -23,7 +24,8 @@ export default function LoginPage() {
       await login(email, password);
       const data = await apiFetch<{ user_id: number; email: string; is_admin: boolean }>("/api/auth/me");
       setUser({ userId: data.user_id, email: data.email, isAdmin: data.is_admin });
-      navigate("/");
+      const next = searchParams.get("next");
+      navigate(next && next.startsWith("/") ? next : "/");
     } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 403 && err.message === "verify_email_pending") {
         setPendingVerification(true);

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getRecommendations } from "../api/recommendations";
+import { getGroupRecommendations } from "../api/groups";
 import { searchPapers } from "../api/search";
 import type { TimeWindow, Recommendation, SearchResponse } from "../api/types";
 import PaperRow from "./PaperRow";
@@ -8,6 +9,7 @@ interface RecommendationListProps {
   selectedArxivId: string | null;
   onSelect: (arxivId: string, liked: number | null, score: number | null) => void;
   likedCache?: Record<string, number>;
+  groupId?: number | null;
 }
 
 const WINDOWS: { label: string; value: TimeWindow }[] = [
@@ -16,12 +18,14 @@ const WINDOWS: { label: string; value: TimeWindow }[] = [
   { label: "Month", value: "month" },
 ];
 
-export default function RecommendationList({ selectedArxivId, onSelect, likedCache = {} }: RecommendationListProps) {
+export default function RecommendationList({ selectedArxivId, onSelect, likedCache = {}, groupId = null }: RecommendationListProps) {
   const [window, setWindow] = useState<TimeWindow>("week");
   const [results, setResults] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [onboarding, setOnboarding] = useState(false);
+  const [groupMemberCount, setGroupMemberCount] = useState<number | null>(null);
+  const [activeMemberCount, setActiveMemberCount] = useState<number | null>(null);
 
   // Search state — committedQuery only updates on submit, never on keystroke,
   // so typing does not re-render the paper list.
@@ -38,9 +42,19 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
       setLoading(true);
       setError(null);
       try {
-        const data = await getRecommendations(win);
-        setResults(data.results);
-        setOnboarding(data.onboarding ?? false);
+        if (groupId != null) {
+          const data = await getGroupRecommendations(groupId, win);
+          setResults(data.results.map((r) => ({ ...r, onboarding: false })));
+          setOnboarding(false);
+          setGroupMemberCount(data.group_member_count);
+          setActiveMemberCount(data.active_member_count);
+        } else {
+          const data = await getRecommendations(win);
+          setResults(data.results);
+          setOnboarding(data.onboarding ?? false);
+          setGroupMemberCount(null);
+          setActiveMemberCount(null);
+        }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Failed to load recommendations");
         setResults([]);
@@ -49,8 +63,14 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
         setLoading(false);
       }
     },
-    [],
+    [groupId],
   );
+
+  // Clear search when switching group context
+  useEffect(() => {
+    clearSearch();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId]);
 
   // Auto-refresh paused while search is active
   useEffect(() => {
@@ -237,6 +257,13 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
         {!isSearchActive && onboarding && (
           <div className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-3 mb-3">
             Not enough data to generate recommendations yet. Mark at least 4 papers as relevant or add papers to your Library.
+          </div>
+        )}
+
+        {/* Group member coverage (group mode only) */}
+        {!isSearchActive && groupId != null && activeMemberCount != null && groupMemberCount != null && (
+          <div className="text-xs text-gray-400 mb-2">
+            {activeMemberCount} of {groupMemberCount} member{groupMemberCount !== 1 ? "s" : ""} have enough data
           </div>
         )}
 

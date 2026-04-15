@@ -3,15 +3,18 @@ import { Link } from "react-router-dom";
 import { logout } from "../api/auth";
 import { useAuth } from "../AuthContext";
 import { getMyPapers } from "../api/user";
+import { useGroups } from "../contexts/GroupsContext";
 import NavMenu from "../components/NavMenu";
 import RecommendationList from "../components/RecommendationList";
 import PaperDetail from "../components/PaperDetail";
 
 export default function MainLayout() {
   const { user, clearUser } = useAuth();
+  const { groups } = useGroups();
   const [selectedArxivId, setSelectedArxivId] = useState<string | null>(null);
   const [selectedLiked, setSelectedLiked] = useState<number | null>(null);
   const [selectedScore, setSelectedScore] = useState<number | null>(null);
+  const [activeGroupId, setActiveGroupId] = useState<number | null>(null);
   // Liked map: initialised from the server on mount so previously-liked papers
   // show the correct colour immediately, then updated on every user interaction.
   const [likedCache, setLikedCache] = useState<Record<string, number>>({});
@@ -25,6 +28,13 @@ export default function MainLayout() {
       })
       .catch(() => {}); // non-fatal; cache stays empty
   }, []);
+
+  // Reset activeGroupId if that group no longer exists
+  useEffect(() => {
+    if (activeGroupId !== null && !groups.some((g) => g.id === activeGroupId)) {
+      setActiveGroupId(null);
+    }
+  }, [groups, activeGroupId]);
 
   async function handleLogout() {
     await logout().catch(() => {});
@@ -64,6 +74,35 @@ export default function MainLayout() {
         <NavMenu email={user?.email} onLogout={handleLogout} />
       </nav>
 
+      {/* Group/personal switcher — only shown when user is in at least one group */}
+      {groups.length > 0 && (
+        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-200 bg-white shrink-0 overflow-x-auto">
+          <button
+            onClick={() => setActiveGroupId(null)}
+            className={`px-3 py-1 rounded text-sm font-medium whitespace-nowrap transition-colors ${
+              activeGroupId === null
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            Personal
+          </button>
+          {groups.map((g) => (
+            <button
+              key={g.id}
+              onClick={() => setActiveGroupId(g.id)}
+              className={`px-3 py-1 rounded text-sm font-medium whitespace-nowrap transition-colors ${
+                activeGroupId === g.id
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              {g.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Two-pane body */}
       <div className="relative flex flex-1 overflow-hidden">
         {/* Left: recommendation list */}
@@ -74,6 +113,7 @@ export default function MainLayout() {
             selectedArxivId={selectedArxivId}
             onSelect={handleSelect}
             likedCache={likedCache}
+            groupId={activeGroupId}
           />
         </div>
 

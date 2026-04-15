@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
+import { GroupsProvider } from "./contexts/GroupsContext";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
@@ -12,6 +13,9 @@ import AdminPapersPage from "./pages/AdminPapersPage";
 import AboutPage from "./pages/AboutPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import GroupsPage from "./pages/GroupsPage";
+import GroupManagePage from "./pages/GroupManagePage";
+import JoinGroupPage from "./pages/JoinGroupPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -31,44 +35,67 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-        <Route path="/verify-email" element={<VerifyEmailPage />} />
-        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route
-          path="/"
-          element={
-            <RequireAuth>
-              <MainLayout />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/library"
-          element={
-            <RequireAuth>
-              <LibraryPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/admin"
-          element={
-            <RequireAdmin>
-              <AdminLayout />
-            </RequireAdmin>
-          }
-        >
-          <Route index element={<Navigate to="users" replace />} />
-          <Route path="users"   element={<AdminUsersPage />} />
-          <Route path="tasks"   element={<AdminTasksPage />} />
-          <Route path="papers"  element={<AdminPapersPage />} />
-        </Route>
-        <Route path="/about" element={<AboutPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <GroupsProvider>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/join-group" element={<JoinGroupPage />} />
+          <Route
+            path="/"
+            element={
+              <RequireAuth>
+                <MainLayout />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/library"
+            element={
+              <RequireAuth>
+                <LibraryPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/groups"
+            element={
+              <RequireAuth>
+                <GroupsPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/groups/new"
+            element={<Navigate to="/groups" replace />}
+          />
+          <Route
+            path="/groups/:groupId/manage"
+            element={
+              <RequireAuth>
+                <GroupManagePage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <RequireAdmin>
+                <AdminLayout />
+              </RequireAdmin>
+            }
+          >
+            <Route index element={<Navigate to="users" replace />} />
+            <Route path="users"   element={<AdminUsersPage />} />
+            <Route path="tasks"   element={<AdminTasksPage />} />
+            <Route path="papers"  element={<AdminPapersPage />} />
+          </Route>
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </GroupsProvider>
     </BrowserRouter>
   );
 }
