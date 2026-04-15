@@ -16,8 +16,11 @@ Pure numpy / sklearn; no network calls.
 
 import hashlib
 import json
+import logging
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 from scipy.spatial.distance import cdist
 from scipy.special import logsumexp
 from sklearn.linear_model import LogisticRegression
@@ -467,7 +470,8 @@ class ScoringModel(object):
                   positive_query_vectors: np.ndarray | None = None,
                   negative_query_vectors: np.ndarray | None = None,
                   n_explicit_negatives: int = 0,
-                  query_terms: list[str] | None = None
+                  query_terms: list[str] | None = None,
+                  debugging: bool = False
            ) -> None:
         """
         Fit the logistic regression model given positive and negative vectors.
@@ -499,6 +503,10 @@ class ScoringModel(object):
             Optional list of the user's search query terms corresponding to
             *query_vectors*.  Used for interpretability of the query-term
             relevance scores.
+        debugging : bool
+            If True, print additional debugging information during
+            training, such as model accuracy on the test vs. training data.
+            Defaults to False.
         """
 
         pos_features = () # Start with empty set and add in features
@@ -519,9 +527,10 @@ class ScoringModel(object):
             np.mean(subspace_frac_pos, axis=0)
             - np.mean(subspace_frac_neg, axis=0)
         )
-        # Add in extra scatter to prevent subspace model from dominating other features.
-        # With small numbers of papers, the subspace fraction features can be very effective
-        # at separating positives from negatives, but this generalizes poorly to new papers.
+        # Add in extra scatter to prevent subspace model from dominating
+        # other features. With small numbers of papers, the subspace fraction
+        # features can be very effective at separating positives from negatives,
+        # but this generalizes poorly to new papers.
         rng = np.random.default_rng(seed=43)
         subspace_frac_pos += rng.normal(scale=scatter, size=subspace_frac_pos.shape)
         subspace_frac_neg += rng.normal(scale=scatter, size=subspace_frac_neg.shape)
@@ -667,35 +676,67 @@ class ScoringModel(object):
             # penalty='elasticnet',
             # l1_ratio=0.1
         )
+
+        if debugging:
+            # Test-train split
+            from sklearn.model_selection import train_test_split
+            X_train, X_test, y_train, y_test = train_test_split(
+                features, y,
+                test_size=0.5,
+                random_state=3
+            )
+            self.logistic_model.fit(X_train, y_train)
+
+            # Test/train accuracy
+            train_acc = self.logistic_model.score(X_train, y_train)
+            test_acc = self.logistic_model.score(X_test, y_test)
+
+            # Test/train loss
+            from sklearn.metrics import log_loss
+            y_train_proba = self.logistic_model.predict_proba(X_train)[:, 1]
+            y_test_proba = self.logistic_model.predict_proba(X_test)[:, 1]
+            train_loss = log_loss(y_train, y_train_proba)
+            test_loss = log_loss(y_test, y_test_proba)
+
+            print( "Dataset  Accuracy   Loss")
+            print( "-------  --------  -------")
+            print(f'Baseline   {max(y.mean(), 1-y.mean()): >7.4%}  {log_loss(y, np.full_like(y, y.mean())): >+7.4f}')
+            print(f"Train    {train_acc: >7.4%}  {train_loss: >+7.4f}")
+            print(f"Test     {test_acc: >7.4%}  {test_loss: >+7.4f}")
+            print('-------  --------  -------')
+            print(f"Diff     {test_acc-train_acc: >+7.4%}  {test_loss-train_loss: >+7.4f}")
+
+        # Train on everything for the final model
         self.logistic_model.fit(features, y)
 
-        # Report model accuracy on the training data for debugging (should be close to 100%)
+        # Report model accuracy on the training data for debugging
         train_acc = self.logistic_model.score(features, y)
-        print(f"Training accuracy: {train_acc: >7.4%}")
+        log.info("Training accuracy: %7.4f%%", train_acc * 100)
 
         # Store positive and query vectors for later use in scoring
         self.positive_vectors = positive_vectors
 
-        self.print_coefficients() # Debugging
+        log.info(self.print_coefficients())
     
-    def print_coefficients(self):
+    def print_coefficients(self) -> str:
         """
-        Print the logistic regression coefficients in a human-readable
-        format for debugging and interpretability.
+        Return a human-readable string of the logistic regression coefficients
+        for debugging and interpretability.
         """
+        lines = []
         coeffs = self.logistic_model.coef_[0]
 
-        print("Logistic regression coefficients:")
-        print(f"positive center cosine dist: {coeffs[0]: >+9.5f}")
-        print(f"negative center cosine dist: {coeffs[1]: >+9.5f}")
+        lines.append("Logistic regression coefficients:")
+        lines.append(f"positive center cosine dist: {coeffs[0]: >+9.5f}")
+        lines.append(f"negative center cosine dist: {coeffs[1]: >+9.5f}")
         coeffs = coeffs[2:] # Skip center cosine distance coefficients
 
-        print('Subspace fraction coefficients:')
-        print('dim   coeff')
-        print('----  --------')
+        lines.append('Subspace fraction coefficients:')
+        lines.append('dim   coeff')
+        lines.append('----  --------')
         for i,d in enumerate(SUBSPACE_FRACTION_DIMS):
-            print(f" {d: >3d}  {coeffs[i]: >+8.5f}")
-        print(f">{SUBSPACE_FRACTION_DIMS[-1]: >3d}  {coeffs[len(SUBSPACE_FRACTION_DIMS)]: >+8.5f}")
+            lines.append(f" {d: >3d}  {coeffs[i]: >+8.5f}")
+        lines.append(f">{SUBSPACE_FRACTION_DIMS[-1]: >3d}  {coeffs[len(SUBSPACE_FRACTION_DIMS)]: >+8.5f}")
         coeffs = coeffs[len(SUBSPACE_FRACTION_DIMS)+1:] # Skip subspace fraction coefficients
 
         # For each gamma, show the max_sim, mean features, and query features.
@@ -718,10 +759,10 @@ class ScoringModel(object):
         )
 
         # Print features in order from largest to smallest scales
-        print('gamma  coeff_full  coeff_res   coeff_query')
-        print('-----  ----------  ----------  ------------')
+        lines.append('gamma  coeff_full  coeff_res   coeff_query')
+        lines.append('-----  ----------  ----------  ------------')
         for i, gamma in enumerate(RBF_GAMMAS):
-            print(
+            lines.append(
                 f'{np.log(gamma): >+5.2f}  '
                +f'{coeff_full[i+1]: >+10.5f}  '
                +f'{coeff_res[i+1]: >+10.5f}  '
@@ -729,13 +770,14 @@ class ScoringModel(object):
                +f'{coeff_query[i+1]: >+10.5f}'
             )
         # Nearest-neighbor features (gamma -> inf)
-        print(
+        lines.append(
             f' inf   '
            +f'{coeff_full[0]: >+10.5f}  '
            +f'{coeff_res[0]: >+10.5f}  '
         #    +f'{coeff_neg[0]: >+10.5f}  '
            +f'{coeff_query[0]: >+10.5f}'
         )
+        return '\n'.join(lines)
     
     def scale_features(self, features: np.ndarray) -> np.ndarray:
         """Scale features using the mean and std from the training data."""
