@@ -513,8 +513,19 @@ class ScoringModel(object):
 
         # Fraction of variance inside high-variance subspace
         self.P,_ = calculate_projection_matrices(positive_vectors, max(SUBSPACE_FRACTION_DIMS))
-        pos_features = pos_features + (self._calc_subspace_fraction_features(positive_vectors),)
-        neg_features = neg_features + (self._calc_subspace_fraction_features(negative_vectors),)
+        subspace_frac_pos = subspace_fraction_features(self.P, positive_vectors)
+        subspace_frac_neg = subspace_fraction_features(self.P, negative_vectors)
+        scatter = 0.5*np.abs(
+            np.mean(subspace_frac_pos, axis=0)
+            - np.mean(subspace_frac_neg, axis=0)
+        )
+        print(scatter)
+        # Add in extra scatter to prevent subspace model from dominating other features
+        rng = np.random.default_rng(seed=43)
+        subspace_frac_pos += rng.normal(scale=scatter, size=subspace_frac_pos.shape)
+        subspace_frac_neg += rng.normal(scale=scatter, size=subspace_frac_neg.shape)
+        pos_features = pos_features + (subspace_frac_pos,)
+        neg_features = neg_features + (subspace_frac_neg,)
 
         # Scale vectors (zero mean, unit variance)
         vectors = np.concatenate((positive_vectors, negative_vectors), axis=0)
@@ -586,25 +597,35 @@ class ScoringModel(object):
             # Keep terms that are more similar to the positive papers than the negative papers
             keep_idx = np.where(query_relevance < 0)[0]
 
-            query_vectors = query_vectors[keep_idx]
-            query_terms = [query_terms[i] for i in keep_idx]
+            if len(keep_idx) == 0:
+                # No useful query terms - skip query features
+                self.query_terms = None
+                self.query_vectors = None
+                self.positive_query_vectors = None
+            else:
+                query_vectors = query_vectors[keep_idx]
+                query_terms = [query_terms[i] for i in keep_idx]
 
-            query_features_pos = rbf_scoring(
-                RBF_GAMMAS,
-                query_vectors,
-                pos_paper_vecs,
-                metric='cosine'
-            )
-            query_features_neg = rbf_scoring(
-                RBF_GAMMAS,
-                query_vectors,
-                neg_paper_vecs,
-                metric='cosine'
-            )
-            # features_pos = query_features_pos
-            # features_neg = query_features_neg
-            pos_features = pos_features + (query_features_pos,)
-            neg_features = neg_features + (query_features_neg,)
+                query_features_pos = rbf_scoring(
+                    RBF_GAMMAS,
+                    query_vectors,
+                    pos_paper_vecs,
+                    metric='cosine'
+                )
+                query_features_neg = rbf_scoring(
+                    RBF_GAMMAS,
+                    query_vectors,
+                    neg_paper_vecs,
+                    metric='cosine'
+                )
+                # features_pos = query_features_pos
+                # features_neg = query_features_neg
+                pos_features = pos_features + (query_features_pos,)
+                neg_features = neg_features + (query_features_neg,)
+
+                self.query_vectors = query_vectors
+                self.positive_query_vectors = positive_query_vectors
+                self.query_terms = query_terms
         
         pos_features = np.concatenate(pos_features, axis=1)
         neg_features = np.concatenate(neg_features, axis=1)
@@ -653,9 +674,6 @@ class ScoringModel(object):
 
         # Store positive and query vectors for later use in scoring
         self.positive_vectors = positive_vectors
-        self.query_vectors = query_vectors
-        self.positive_query_vectors = positive_query_vectors
-        self.query_terms = query_terms
 
         self.print_coefficients() # Debugging
     
