@@ -93,3 +93,48 @@ export function getAdminPapers(params?: {
   const qs = q.toString() ? `?${q}` : "";
   return apiFetch(`/api/admin/papers${qs}`);
 }
+
+export interface AdminGroup {
+  id: number;
+  name: string;
+  created_at: string;
+  member_count: number;
+  last_joined_at: string | null;
+  admin_emails: string[];
+  pending_invite_count: number;
+}
+
+export interface AdminGroupMember {
+  user_id: number;
+  email: string;
+  is_admin: boolean;
+  joined_at: string;
+}
+
+export interface AdminGroupInvite {
+  id: number;
+  token: string;
+  created_by_email: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface AdminGroupDetail {
+  id: number;
+  name: string;
+  created_at: string;
+  members: AdminGroupMember[];
+  pending_invites: AdminGroupInvite[];
+}
+
+export function getAdminGroups(): Promise<AdminGroup[]> {
+  return apiFetch("/api/admin/groups");
+}
+
+export function getAdminGroup(groupId: number): Promise<AdminGroupDetail> {
+  return apiFetch(`/api/admin/groups/${groupId}`);
+}
+
+export function deleteAdminGroup(groupId: number): Promise<void> {
+  return apiFetch(`/api/admin/groups/${groupId}`, { method: "DELETE" });
+}

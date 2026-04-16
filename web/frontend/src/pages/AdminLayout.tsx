@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { to: "users",  label: "Users" },
   { to: "tasks",  label: "Tasks" },
   { to: "papers", label: "Papers" },
+  { to: "groups", label: "Groups" },
 ] as const;
 
 export default function AdminLayout() {

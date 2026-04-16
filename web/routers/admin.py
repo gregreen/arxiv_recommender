@@ -9,6 +9,9 @@ GET  /api/admin/users                  — list all users with enrichment
 PATCH /api/admin/users/{user_id}       — toggle is_active (not is_admin)
 GET  /api/admin/tasks                  — task_queue entries, filterable
 GET  /api/admin/papers                 — ingested papers, searchable
+GET  /api/admin/groups                 — list all groups with aggregate stats
+GET  /api/admin/groups/{group_id}      — group detail with members + pending invites
+DELETE /api/admin/groups/{group_id}    — delete a group (cascades to members/invites)
 """
 
 import json
@@ -282,3 +285,125 @@ def list_papers(
             for r in rows
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Groups
+# ---------------------------------------------------------------------------
+
+@router.get("/groups")
+def list_groups(
+    db: sqlite3.Connection = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    rows = db.execute("""
+        SELECT
+            g.id,
+            g.name,
+            g.created_at,
+            COUNT(DISTINCT gm.user_id)                                   AS member_count,
+            MAX(gm.joined_at)                                            AS last_joined_at,
+            SUM(CASE WHEN gm.is_admin = 1 THEN 1 ELSE 0 END)            AS admin_count,
+            COUNT(DISTINCT CASE
+                WHEN gi.used_at IS NULL AND gi.expires_at > datetime('now')
+                THEN gi.id END)                                          AS pending_invite_count
+        FROM groups g
+        LEFT JOIN group_members gm ON gm.group_id = g.id
+        LEFT JOIN group_invites gi ON gi.group_id = g.id
+        GROUP BY g.id
+        ORDER BY g.created_at DESC
+    """).fetchall()
+
+    # Fetch admin emails for each group separately (avoids comma_group concat portability issues)
+    result = []
+    for r in rows:
+        admin_rows = db.execute("""
+            SELECT u.email
+            FROM group_members gm
+            JOIN users u ON u.id = gm.user_id
+            WHERE gm.group_id = ? AND gm.is_admin = 1
+            ORDER BY gm.joined_at ASC
+        """, (r["id"],)).fetchall()
+        result.append({
+            "id":                   r["id"],
+            "name":                 r["name"],
+            "created_at":           r["created_at"],
+            "member_count":         r["member_count"],
+            "last_joined_at":       r["last_joined_at"],
+            "admin_emails":         [a["email"] for a in admin_rows],
+            "pending_invite_count": r["pending_invite_count"] or 0,
+        })
+    return result
+
+
+@router.get("/groups/{group_id}")
+def get_group(
+    group_id: int,
+    db: sqlite3.Connection = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    group = db.execute(
+        "SELECT id, name, created_at FROM groups WHERE id = ?", (group_id,)
+    ).fetchone()
+    if group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found.")
+
+    members = db.execute("""
+        SELECT u.id AS user_id, u.email, gm.is_admin, gm.joined_at
+        FROM group_members gm
+        JOIN users u ON u.id = gm.user_id
+        WHERE gm.group_id = ?
+        ORDER BY gm.joined_at ASC
+    """, (group_id,)).fetchall()
+
+    invites = db.execute("""
+        SELECT gi.id, gi.token, u.email AS created_by_email, gi.created_at, gi.expires_at
+        FROM group_invites gi
+        JOIN users u ON u.id = gi.created_by
+        WHERE gi.group_id = ?
+          AND gi.used_at IS NULL
+          AND gi.expires_at > datetime('now')
+        ORDER BY gi.created_at DESC
+    """, (group_id,)).fetchall()
+
+    return {
+        "id":         group["id"],
+        "name":       group["name"],
+        "created_at": group["created_at"],
+        "members": [
+            {
+                "user_id":   m["user_id"],
+                "email":     m["email"],
+                "is_admin":  bool(m["is_admin"]),
+                "joined_at": m["joined_at"],
+            }
+            for m in members
+        ],
+        "pending_invites": [
+            {
+                "id":               i["id"],
+                "token":            i["token"],
+                "created_by_email": i["created_by_email"],
+                "created_at":       i["created_at"],
+                "expires_at":       i["expires_at"],
+            }
+            for i in invites
+        ],
+    }
+
+
+@router.delete("/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_group(
+    group_id: int,
+    db: sqlite3.Connection = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    cur = db.execute("DELETE FROM groups WHERE id = ?", (group_id,))
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found.")
+    db.execute(
+        "INSERT INTO admin_audit_log (admin_id, action, target_id) VALUES (?, ?, ?)",
+        (_admin["id"], "delete_group", group_id),
+    )
+    db.commit()
+

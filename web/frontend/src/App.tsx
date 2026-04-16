@@ -10,6 +10,7 @@ import AdminLayout from "./pages/AdminLayout";
 import AdminUsersPage from "./pages/AdminUsersPage";
 import AdminTasksPage from "./pages/AdminTasksPage";
 import AdminPapersPage from "./pages/AdminPapersPage";
+import AdminGroupsPage from "./pages/AdminGroupsPage";
 import AboutPage from "./pages/AboutPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
@@ -91,6 +92,7 @@ export default function App() {
             <Route path="users"   element={<AdminUsersPage />} />
             <Route path="tasks"   element={<AdminTasksPage />} />
             <Route path="papers"  element={<AdminPapersPage />} />
+            <Route path="groups"  element={<AdminGroupsPage />} />
           </Route>
           <Route path="/about" element={<AboutPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
