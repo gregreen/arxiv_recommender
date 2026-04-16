@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily arXiv Task Queue Cleanup Timer
+
+[Timer]
+OnCalendar=Mon,Tue,Wed,Thu,Fri,Sat,Sun *-*-* 04:00:00
+Timezone=America/New_York
+Persistent=true
+Unit=arxiv-cleanup-tasks.service
+
+[Install]
+WantedBy=timers.target

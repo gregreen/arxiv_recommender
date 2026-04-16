@@ -39,6 +39,11 @@ services:
       # Cleanup old source files every day at 3:30 AM (NYC time)
       ofelia.job-exec.source-cleanup.schedule: "0 30 3 * * *"
       ofelia.job-exec.source-cleanup.command: "python3 scripts/arxiv_source_cleanup.py"
+      ofelia.job-exec.source-cleanup.timezone: "America/New_York"
+      # Cleanup old completed tasks every day at 4:00 AM (NYC time)
+      ofelia.job-exec.cleanup-tasks.schedule: "0 0 4 * * *"
+      ofelia.job-exec.cleanup-tasks.command: "python3 scripts/cleanup_tasks.py"
+      ofelia.job-exec.cleanup-tasks.timezone: "America/New_York"
 
   # ── Metadata daemon ──────────────────────────────────────────────────────────
   meta-daemon:
