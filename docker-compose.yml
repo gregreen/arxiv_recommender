@@ -30,15 +30,15 @@ services:
     # Ofelia reads these labels to schedule periodic jobs inside this container.
     labels:
       ofelia.enabled: "true"
+      # Ingest new papers every weekday at 9:30 PM (NYC time, soon after arXiv's daily update)
       ofelia.job-exec.daily-ingest.schedule: "0 30 21 * * 1-5"
       ofelia.job-exec.daily-ingest.command: "python3 scripts/cron_daily.py"
-      ofelia.job-exec.daily-ingest.timezone: "America/New_York"
+      # Cleanup old embeddings every day at 3:00 AM (NYC time, safely after daily ingest)
       ofelia.job-exec.cleanup.schedule: "0 0 3 * * *"
       ofelia.job-exec.cleanup.command: "python3 scripts/cleanup_embeddings.py"
-      ofelia.job-exec.cleanup.timezone: "America/New_York"
+      # Cleanup old source files every day at 3:30 AM (NYC time)
       ofelia.job-exec.source-cleanup.schedule: "0 30 3 * * *"
       ofelia.job-exec.source-cleanup.command: "python3 scripts/arxiv_source_cleanup.py"
-      ofelia.job-exec.source-cleanup.timezone: "America/New_York"
 
   # ── Metadata daemon ──────────────────────────────────────────────────────────
   meta-daemon:
@@ -81,13 +81,15 @@ services:
     depends_on:
       - api
 
-  # ── Scheduler (runs cron_daily.py and cleanup_embeddings.py) ────────────────
+  # ── Scheduler (Ofelia: executes periodic jobs inside the api container) ──────
   scheduler:
     image: mcuadros/ofelia:latest
     command: daemon --docker
     restart: unless-stopped
     depends_on:
       - api
+    environment:
+      - TZ=America/New_York # Ofelia ignores per-job timezone labels; use host TZ instead
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
