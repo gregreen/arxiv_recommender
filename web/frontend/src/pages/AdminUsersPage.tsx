@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { getAdminUsers, patchAdminUser, resetUserImportLog, type AdminUser } from "../api/admin";
 import { formatTimestamp } from "../utils";
 
@@ -94,6 +95,7 @@ const COLS: { key: ColKey; label: string; sortable: boolean }[] = [
 // ---------------------------------------------------------------------------
 
 export default function AdminUsersPage() {
+  const navigate = useNavigate();
   const [users, setUsers]     = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
@@ -180,7 +182,17 @@ export default function AdminUsersPage() {
   if (error)   return <div className="p-6 text-red-600">{error}</div>;
 
   return (
-    <div className="p-6 flex flex-col gap-4">
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Mobile: back to category nav */}
+      <div className="md:hidden shrink-0 flex items-center px-4 py-2 bg-white border-b border-gray-200">
+        <button
+          onClick={() => navigate("/admin")}
+          className="flex items-center gap-1.5 text-sm text-red-700 hover:text-red-900 transition-colors"
+        >
+          ← Return to list
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
       <h1 className="text-xl font-bold text-gray-800">
         Users{" "}
         <span className="text-sm font-normal text-gray-500">
@@ -285,6 +297,7 @@ export default function AdminUsersPage() {
             ))}
           </tbody>
         </table>
+      </div>
       </div>
     </div>
   );

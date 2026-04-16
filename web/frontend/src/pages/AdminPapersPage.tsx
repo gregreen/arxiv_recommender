@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { getAdminPapers, type AdminPaper, type Paginated } from "../api/admin";
 import { formatTimestamp } from "../utils";
 import MathText from "../components/MathText";
@@ -7,6 +8,7 @@ import PaperDetail from "../components/PaperDetail";
 const PAGE_SIZE = 50;
 
 export default function AdminPapersPage() {
+  const navigate = useNavigate();
   const [data, setData]         = useState<Paginated<AdminPaper> | null>(null);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
@@ -46,6 +48,16 @@ export default function AdminPapersPage() {
       <div className={`absolute inset-0 w-full flex flex-col bg-white transition-transform duration-300 ease-in-out
         md:relative md:w-96 md:min-w-0 md:shrink-0 md:border-r md:border-gray-200 md:translate-x-0
         ${selectedArxivId !== null ? "-translate-x-full" : "translate-x-0"}`}>
+
+        {/* Mobile: back to category nav */}
+        <div className="md:hidden shrink-0 flex items-center px-4 py-2 bg-white border-b border-gray-200">
+          <button
+            onClick={() => navigate("/admin")}
+            className="flex items-center gap-1.5 text-sm text-red-700 hover:text-red-900 transition-colors"
+          >
+            ← Return to list
+          </button>
+        </div>
 
         {/* Search bar */}
         <div className="p-4 border-b border-gray-200 shrink-0">

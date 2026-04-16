@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   getAdminGroups,
   getAdminGroup,
@@ -9,6 +10,7 @@ import {
 import { formatTimestamp } from "../utils";
 
 export default function AdminGroupsPage() {
+  const navigate = useNavigate();
   const [groups, setGroups]           = useState<AdminGroup[] | null>(null);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
@@ -64,9 +66,19 @@ export default function AdminGroupsPage() {
   return (
     <div className="relative flex h-full overflow-hidden">
       {/* ── Left pane: group list ────────────────────────────────────────── */}
-      <div className={`absolute inset-0 w-full flex flex-col bg-white transition-transform duration-300 ease-in-out
+      <div className={`absolute inset-0 z-10 flex flex-col bg-white transition-transform duration-300 ease-in-out
         md:relative md:w-80 md:shrink-0 md:border-r md:border-gray-200 md:translate-x-0
         ${selectedId !== null ? "-translate-x-full" : "translate-x-0"}`}>
+
+        {/* Mobile: back to category nav */}
+        <div className="md:hidden shrink-0 flex items-center px-4 py-2 bg-white border-b border-gray-200">
+          <button
+            onClick={() => navigate("/admin")}
+            className="flex items-center gap-1.5 text-sm text-red-700 hover:text-red-900 transition-colors"
+          >
+            ← Return to list
+          </button>
+        </div>
 
         <div className="px-4 py-3 border-b border-gray-200 shrink-0 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-gray-700">Groups</h2>

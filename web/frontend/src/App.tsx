@@ -88,7 +88,7 @@ export default function App() {
               </RequireAdmin>
             }
           >
-            <Route index element={<Navigate to="users" replace />} />
+            <Route index element={null} />
             <Route path="users"   element={<AdminUsersPage />} />
             <Route path="tasks"   element={<AdminTasksPage />} />
             <Route path="papers"  element={<AdminPapersPage />} />
