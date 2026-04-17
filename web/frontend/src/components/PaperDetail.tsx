@@ -12,9 +12,10 @@ interface PaperDetailProps {
   initialLiked?: number | null;
   score?: number | null;
   onLikedChange?: (arxivId: string, liked: 1 | -1 | 0) => void;
+  onPaperLoaded?: (paper: Paper) => void;
 }
 
-export default function PaperDetail({ arxivId, initialLiked, score, onLikedChange }: PaperDetailProps) {
+export default function PaperDetail({ arxivId, initialLiked, score, onLikedChange, onPaperLoaded }: PaperDetailProps) {
   const [paper, setPaper] = useState<Paper | null>(null);
   const [liked, setLiked] = useState<number | null>(initialLiked ?? null);
   const [loading, setLoading] = useState(false);
@@ -29,7 +30,7 @@ export default function PaperDetail({ arxivId, initialLiked, score, onLikedChang
     setNotFound(false);
     setLiked(initialLiked ?? null);
     getPaper(arxivId)
-      .then(setPaper)
+      .then((p) => { setPaper(p); onPaperLoaded?.(p); })
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 404) {
           setNotFound(true);
@@ -167,6 +168,12 @@ export default function PaperDetail({ arxivId, initialLiked, score, onLikedChang
           <p className="text-sm text-gray-700 leading-relaxed">
             <MathText text={paper.abstract} />
           </p>
+        </div>
+      )}
+
+      {paper.summary === null && (
+        <div className="mt-4 text-sm text-gray-400 italic">
+          Paper summary is being generated — please be patient.
         </div>
       )}
 

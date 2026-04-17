@@ -4,6 +4,7 @@ import { logout } from "../api/auth";
 import { useAuth } from "../AuthContext";
 import { getMyPapers, addPaper, updatePaper, deletePaper, importAds } from "../api/user";
 import type { UserPaper } from "../api/types";
+import type { Paper } from "../api/types";
 import { formatTimestamp } from "../utils";
 import MathText from "../components/MathText";
 import NavMenu from "../components/NavMenu";
@@ -40,6 +41,15 @@ export default function LibraryPage() {
     } else {
       setPapers((prev) => prev.map((p) => p.arxiv_id === arxivId ? { ...p, liked } : p));
     }
+  }
+
+  function handlePaperLoaded(paper: Paper) {
+    // Update sidebar entry when it was previously missing metadata (title === null).
+    setPapers((prev) => prev.map((p) =>
+      p.arxiv_id === paper.arxiv_id && p.title === null
+        ? { ...p, title: paper.title, published_date: paper.published_date }
+        : p
+    ));
   }
 
   // Add paper form
@@ -296,6 +306,7 @@ export default function LibraryPage() {
               arxivId={selectedArxivId}
               initialLiked={selectedLiked}
               onLikedChange={handleLikedChange}
+              onPaperLoaded={handlePaperLoaded}
             />
           </div>
         </div>
