@@ -25,10 +25,25 @@ function InviteRow({ invite, origin, onRevoke }: {
   const url = `${origin}/join-group?token=${encodeURIComponent(invite.token)}`;
 
   function handleCopy() {
-    navigator.clipboard.writeText(url).then(() => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
+    } else {
+      // Fallback for non-secure contexts (HTTP)
+      const ta = document.createElement("textarea");
+      ta.value = url;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    }
   }
 
   const expires = new Date(invite.expires_at).toLocaleDateString();
