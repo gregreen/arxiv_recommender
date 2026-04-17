@@ -305,7 +305,7 @@ def list_groups(
             MAX(gm.joined_at)                                            AS last_joined_at,
             SUM(CASE WHEN gm.is_admin = 1 THEN 1 ELSE 0 END)            AS admin_count,
             COUNT(DISTINCT CASE
-                WHEN gi.used_at IS NULL AND gi.expires_at > datetime('now')
+                WHEN gi.remaining_uses > 0 AND gi.expires_at > datetime('now')
                 THEN gi.id END)                                          AS pending_invite_count
         FROM groups g
         LEFT JOIN group_members gm ON gm.group_id = g.id
@@ -357,11 +357,11 @@ def get_group(
     """, (group_id,)).fetchall()
 
     invites = db.execute("""
-        SELECT gi.id, gi.token, u.email AS created_by_email, gi.created_at, gi.expires_at
+        SELECT gi.id, gi.token, u.email AS created_by_email, gi.created_at, gi.expires_at, gi.remaining_uses
         FROM group_invites gi
         JOIN users u ON u.id = gi.created_by
         WHERE gi.group_id = ?
-          AND gi.used_at IS NULL
+          AND gi.remaining_uses > 0
           AND gi.expires_at > datetime('now')
         ORDER BY gi.created_at DESC
     """, (group_id,)).fetchall()
@@ -386,6 +386,7 @@ def get_group(
                 "created_by_email": i["created_by_email"],
                 "created_at":       i["created_at"],
                 "expires_at":       i["expires_at"],
+                "remaining_uses":   i["remaining_uses"],
             }
             for i in invites
         ],

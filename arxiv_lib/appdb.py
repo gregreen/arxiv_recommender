@@ -173,16 +173,19 @@ CREATE TABLE IF NOT EXISTS group_members (
 );
 CREATE INDEX IF NOT EXISTS group_members_user ON group_members(user_id);
 
--- Single-use invite tokens.  used_at IS NULL means the invite is still pending.
+-- Invite tokens.  remaining_uses > 0 means the invite is still valid.
+-- remaining_uses starts at max_uses (1 for single-use, N for multi-use) and
+-- decrements atomically on each successful join.
 CREATE TABLE IF NOT EXISTS group_invites (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    group_id    INTEGER NOT NULL REFERENCES groups(id)  ON DELETE CASCADE,
-    token       TEXT    NOT NULL UNIQUE,
-    created_by  INTEGER NOT NULL REFERENCES users(id),
-    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-    expires_at  TEXT    NOT NULL,
-    used_at     TEXT,
-    used_by     INTEGER REFERENCES users(id)
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id       INTEGER NOT NULL REFERENCES groups(id)  ON DELETE CASCADE,
+    token          TEXT    NOT NULL UNIQUE,
+    created_by     INTEGER NOT NULL REFERENCES users(id),
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    expires_at     TEXT    NOT NULL,
+    remaining_uses INTEGER NOT NULL DEFAULT 1,
+    used_at        TEXT,
+    used_by        INTEGER REFERENCES users(id)
 );
 CREATE INDEX IF NOT EXISTS group_invites_token ON group_invites(token);
 """
@@ -222,12 +225,18 @@ def init_app_db(path: str = APP_DB_PATH) -> None:
         for stmt in [
             "ALTER TABLE users ADD COLUMN password_reset_token TEXT",
             "ALTER TABLE users ADD COLUMN password_reset_token_expires_at TEXT",
+            "ALTER TABLE group_invites ADD COLUMN remaining_uses INTEGER NOT NULL DEFAULT 1",
         ]:
             try:
                 con.execute(stmt)
                 con.commit()
             except sqlite3.OperationalError:
                 pass  # column already exists
+        # Mark previously consumed single-use invites as exhausted.
+        con.execute(
+            "UPDATE group_invites SET remaining_uses = 0 WHERE remaining_uses = 1 AND used_at IS NOT NULL"
+        )
+        con.commit()
     finally:
         con.close()
 

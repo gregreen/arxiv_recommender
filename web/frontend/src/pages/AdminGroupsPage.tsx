@@ -241,6 +241,7 @@ export default function AdminGroupsPage() {
                         <tr>
                           <th className="px-3 py-2 text-left font-medium">Token</th>
                           <th className="px-3 py-2 text-left font-medium">Created by</th>
+                          <th className="px-3 py-2 text-left font-medium">Uses left</th>
                           <th className="px-3 py-2 text-left font-medium">Created</th>
                           <th className="px-3 py-2 text-left font-medium">Expires</th>
                         </tr>
@@ -253,6 +254,11 @@ export default function AdminGroupsPage() {
                               {inv.token.slice(0, 12)}…
                             </td>
                             <td className="px-3 py-2 text-gray-700 truncate max-w-xs">{inv.created_by_email}</td>
+                            <td className="px-3 py-2 tabular-nums text-xs">
+                              <span className={inv.remaining_uses <= 3 ? "text-amber-600 font-medium" : "text-gray-600"}>
+                                {inv.remaining_uses}
+                              </span>
+                            </td>
                             <td className="px-3 py-2 text-gray-400 text-xs tabular-nums whitespace-nowrap">
                               {formatTimestamp(inv.created_at)}
                             </td>

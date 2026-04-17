@@ -32,11 +32,16 @@ function InviteRow({ invite, origin, onRevoke }: {
   }
 
   const expires = new Date(invite.expires_at).toLocaleDateString();
+  const usesLabel = invite.remaining_uses === 1
+    ? "1 use left"
+    : `${invite.remaining_uses} uses left`;
+  const usesColor = invite.remaining_uses <= 3 ? "text-amber-600" : "text-gray-400";
 
   return (
     <li className="flex flex-col bg-gray-50 border border-gray-200 rounded px-3 py-2 gap-2">
       <div className="flex items-center gap-2">
         <span className="font-mono text-xs text-gray-500 truncate flex-1" title={url}>{url}</span>
+        <span className={`text-xs shrink-0 ${usesColor}`}>{usesLabel}</span>
         <span className="text-xs text-gray-400 shrink-0">exp {expires}</span>
         <button
           onClick={handleCopy}
@@ -81,6 +86,8 @@ export default function GroupManagePage() {
   const [deletingMember, setDeletingMember] = useState<number | null>(null);
   const [promoteConfirm, setPromoteConfirm] = useState<number | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [showMultiUse, setShowMultiUse] = useState(false);
+  const [multiUseCount, setMultiUseCount] = useState(25);
 
   const isCurrentUserAdmin = group?.members.some(
     (m) => m.user_id === user?.userId && m.is_admin,
@@ -106,11 +113,12 @@ export default function GroupManagePage() {
 
   useEffect(() => { loadGroup(); }, [loadGroup]);
 
-  async function handleCreateInvite() {
+  async function handleCreateInvite(maxUses: number = 1) {
     setActionError(null);
     try {
-      const inv = await createInvite(groupId);
+      const inv = await createInvite(groupId, maxUses);
       setInvites((prev) => [inv, ...prev]);
+      setShowMultiUse(false);
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : "Failed to create invite");
     }
@@ -254,13 +262,50 @@ export default function GroupManagePage() {
           <section>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Invite links</h2>
-              <button
-                onClick={handleCreateInvite}
-                className="text-sm px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
-              >
-                + Create invite
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleCreateInvite(1)}
+                  className="text-sm px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+                >
+                  + Single-use
+                </button>
+                <button
+                  onClick={() => setShowMultiUse((v) => !v)}
+                  className={`text-sm px-3 py-1 rounded border transition-colors ${
+                    showMultiUse
+                      ? "bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200"
+                      : "bg-white text-blue-700 border-blue-300 hover:bg-blue-50"
+                  }`}
+                >
+                  + Multi-use
+                </button>
+              </div>
             </div>
+            {showMultiUse && (
+              <div className="flex items-center gap-2 mb-3 p-3 bg-blue-50 border border-blue-200 rounded">
+                <label className="text-sm text-gray-700">Uses:</label>
+                <input
+                  type="number"
+                  min={2}
+                  max={50}
+                  value={multiUseCount}
+                  onChange={(e) => setMultiUseCount(Math.min(50, Math.max(2, Number(e.target.value))))}
+                  className="w-20 text-sm px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+                <button
+                  onClick={() => handleCreateInvite(multiUseCount)}
+                  className="text-sm px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+                >
+                  Create
+                </button>
+                <button
+                  onClick={() => setShowMultiUse(false)}
+                  className="text-sm px-2 py-1 text-gray-500 hover:text-gray-700 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
             {invites.length === 0 ? (
               <p className="text-sm text-gray-400">No pending invites.</p>
             ) : (

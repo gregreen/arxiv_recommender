@@ -117,6 +117,7 @@ export interface AdminGroupInvite {
   created_by_email: string;
   created_at: string;
   expires_at: string;
+  remaining_uses: number;
 }
 
 export interface AdminGroupDetail {

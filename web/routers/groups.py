@@ -47,6 +47,10 @@ class CreateGroupRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
 
 
+class CreateInviteBody(BaseModel):
+    max_uses: int = Field(default=1, ge=1, le=50)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -171,7 +175,7 @@ def join_info(
         SELECT g.id, g.name
           FROM group_invites gi
           JOIN groups g ON g.id = gi.group_id
-         WHERE gi.token = ? AND gi.used_at IS NULL AND gi.expires_at > ?
+         WHERE gi.token = ? AND gi.remaining_uses > 0 AND gi.expires_at > ?
         """,
         (token, now),
     ).fetchone()
@@ -240,26 +244,28 @@ def group_recommendations(
 def create_invite(
     request: Request,
     group_id: int,
+    body: CreateInviteBody = CreateInviteBody(),
     db: sqlite3.Connection = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    """Generate a new single-use invite token for the group (admin only)."""
+    """Generate a new invite token for the group (admin only)."""
     _require_admin(db, group_id, user["id"])
     now = datetime.now(timezone.utc)
     token = secrets.token_urlsafe(32)
     expires_at = (now + timedelta(days=_INVITE_EXPIRY_DAYS)).isoformat()
     cursor = db.execute(
         """
-        INSERT INTO group_invites (group_id, token, created_by, created_at, expires_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO group_invites (group_id, token, created_by, created_at, expires_at, remaining_uses)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (group_id, token, user["id"], now.isoformat(), expires_at),
+        (group_id, token, user["id"], now.isoformat(), expires_at, body.max_uses),
     )
     db.commit()
     return {
-        "id":         cursor.lastrowid,
-        "token":      token,
-        "expires_at": expires_at,
+        "id":             cursor.lastrowid,
+        "token":          token,
+        "expires_at":     expires_at,
+        "remaining_uses": body.max_uses,
     }
 
 
@@ -274,19 +280,20 @@ def list_invites(
     now = datetime.now(timezone.utc).isoformat()
     rows = db.execute(
         """
-        SELECT id, token, created_at, expires_at
+        SELECT id, token, created_at, expires_at, remaining_uses
           FROM group_invites
-         WHERE group_id = ? AND used_at IS NULL AND expires_at > ?
+         WHERE group_id = ? AND remaining_uses > 0 AND expires_at > ?
          ORDER BY created_at DESC
         """,
         (group_id, now),
     ).fetchall()
     return [
         {
-            "id":         r["id"],
-            "token":      r["token"],
-            "created_at": r["created_at"],
-            "expires_at": r["expires_at"],
+            "id":             r["id"],
+            "token":          r["token"],
+            "created_at":     r["created_at"],
+            "expires_at":     r["expires_at"],
+            "remaining_uses": r["remaining_uses"],
         }
         for r in rows
     ]
@@ -302,7 +309,7 @@ def revoke_invite(
     """Revoke (delete) a pending invite (admin only)."""
     _require_admin(db, group_id, user["id"])
     result = db.execute(
-        "DELETE FROM group_invites WHERE id = ? AND group_id = ? AND used_at IS NULL",
+        "DELETE FROM group_invites WHERE id = ? AND group_id = ? AND remaining_uses > 0",
         (invite_id, group_id),
     )
     db.commit()
@@ -327,14 +334,14 @@ def join_group(
         """
         SELECT id, group_id
           FROM group_invites
-         WHERE token = ? AND used_at IS NULL AND expires_at > ?
+         WHERE token = ? AND remaining_uses > 0 AND expires_at > ?
         """,
         (token, now),
     ).fetchone()
     if invite is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Invite not found, already used, or expired.",
+            detail="Invite not found, fully used, or expired.",
         )
 
     group_id = invite["group_id"]
@@ -347,13 +354,25 @@ def join_group(
     if existing:
         return _group_response(db, group_id, include_members=True)
 
+    # Atomically decrement remaining_uses — handles concurrent join race conditions
+    result = db.execute(
+        """
+        UPDATE group_invites
+           SET remaining_uses = remaining_uses - 1,
+               used_at = ?,
+               used_by = ?
+         WHERE id = ? AND remaining_uses > 0 AND expires_at > ?
+        """,
+        (now, user["id"], invite["id"], now),
+    )
+    if result.rowcount == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invite not found, fully used, or expired.",
+        )
     db.execute(
         "INSERT INTO group_members (group_id, user_id, is_admin, joined_at) VALUES (?, ?, 0, ?)",
         (group_id, user["id"], now),
-    )
-    db.execute(
-        "UPDATE group_invites SET used_at = ?, used_by = ? WHERE id = ?",
-        (now, user["id"], invite["id"]),
     )
     db.commit()
     return _group_response(db, group_id, include_members=True)

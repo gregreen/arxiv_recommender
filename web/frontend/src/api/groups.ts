@@ -23,6 +23,7 @@ export interface GroupInvite {
   token: string;
   created_at: string;
   expires_at: string;
+  remaining_uses: number;
 }
 
 export interface GroupRecommendationsResponse {
@@ -72,9 +73,10 @@ export async function getGroupRecommendations(
   );
 }
 
-export async function createInvite(groupId: number): Promise<GroupInvite> {
+export async function createInvite(groupId: number, maxUses: number = 1): Promise<GroupInvite> {
   return apiFetch<GroupInvite>(`/api/groups/${groupId}/invites`, {
     method: "POST",
+    body: JSON.stringify({ max_uses: maxUses }),
   });
 }
 
