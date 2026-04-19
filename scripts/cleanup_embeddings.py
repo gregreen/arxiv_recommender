@@ -80,7 +80,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    db_path = _config.EMBEDDING_CACHE_DB
+    db_path = _config.EMBEDDING_CACHE_DB()
 
     if not os.path.exists(db_path):
         print(f"Note: {db_path} does not exist — nothing to do.")
@@ -118,7 +118,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Count orphaned search-term embeddings
     # ------------------------------------------------------------------
-    app_db_path = _config.APP_DB_PATH
+    app_db_path = _config.APP_DB_PATH()
     n_orphans = 0
     with sqlite3.connect(db_path) as con:
         tables = {row[0] for row in con.execute(

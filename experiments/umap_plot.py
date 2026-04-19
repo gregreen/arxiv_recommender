@@ -48,7 +48,7 @@ _EXPERIMENTS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def load_embeddings() -> tuple[list[str], np.ndarray]:
     """Return (arxiv_ids, matrix) for all embeddings in the DB."""
-    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+    with sqlite3.connect(EMBEDDING_CACHE_DB()) as con:
         rows = con.execute("SELECT arxiv_id, vector FROM recommendation_embeddings ORDER BY arxiv_id").fetchall()
     if not rows:
         print("No recommendation embeddings found in the database.", file=sys.stderr)
@@ -67,7 +67,7 @@ def load_primary_categories(arxiv_ids: list[str]) -> list[str]:
     or has no categories stored.
     """
     id_to_cat: dict[str, str] = {}
-    with sqlite3.connect(APP_DB_PATH) as con:
+    with sqlite3.connect(APP_DB_PATH()) as con:
         placeholders = ",".join("?" * len(arxiv_ids))
         rows = con.execute(
             f"SELECT arxiv_id, categories FROM papers WHERE arxiv_id IN ({placeholders})",
@@ -180,7 +180,7 @@ def main() -> None:
 
     sample_ids = [arxiv_ids[i] for i in sample_indices]
     id_to_title: dict[str, str] = {}
-    with sqlite3.connect(APP_DB_PATH) as con:
+    with sqlite3.connect(APP_DB_PATH()) as con:
         placeholders = ",".join("?" * len(sample_ids))
         title_rows = con.execute(
             f"SELECT arxiv_id, title FROM papers WHERE arxiv_id IN ({placeholders})",

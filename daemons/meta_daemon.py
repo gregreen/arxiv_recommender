@@ -132,8 +132,8 @@ def main() -> int:
         help="Process one batch (or report empty queue) then exit.",
     )
     parser.add_argument(
-        "--db", default=APP_DB_PATH,
-        help=f"Path to app.db (default: {APP_DB_PATH})",
+        "--db", default=APP_DB_PATH(),
+        help=f"Path to app.db (default: {APP_DB_PATH()})",
     )
     args = parser.parse_args()
 

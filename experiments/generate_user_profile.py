@@ -133,7 +133,7 @@ def main() -> None:
     summaries: list[tuple[str, str]] = []  # (arxiv_id, summary_text)
     for arxiv_id in arxiv_ids:
         cache_file = os.path.join(
-            _config.SUMMARY_CACHE_DIR,
+            _config.SUMMARY_CACHE_DIR(),
             sanitize_old_style_arxiv_id(arxiv_id) + ".txt",
         )
         if os.path.exists(cache_file):

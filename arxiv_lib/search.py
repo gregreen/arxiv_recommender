@@ -80,7 +80,7 @@ def _load_search_vectors(arxiv_ids: list[str]) -> dict[str, np.ndarray]:
         return {}
     placeholders = ",".join("?" * len(arxiv_ids))
     vectors: dict[str, np.ndarray] = {}
-    with _sqlite3.connect(EMBEDDING_CACHE_DB) as emb_con:
+    with _sqlite3.connect(EMBEDDING_CACHE_DB()) as emb_con:
         rows = emb_con.execute(
             f"SELECT arxiv_id, vector FROM search_embeddings WHERE arxiv_id IN ({placeholders})",
             arxiv_ids,

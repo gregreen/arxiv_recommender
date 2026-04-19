@@ -152,8 +152,8 @@ def main() -> int:
         help="Use the RSS Atom feed instead of OAI-PMH (legacy fallback).",
     )
     parser.add_argument(
-        "--db", default=APP_DB_PATH,
-        help=f"Path to app.db (default: {APP_DB_PATH})",
+        "--db", default=APP_DB_PATH(),
+        help=f"Path to app.db (default: {APP_DB_PATH()})",
     )
     args = parser.parse_args()
 

@@ -32,7 +32,7 @@ def get_paper(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found.")
 
     summary_cache_id = arxiv_id.replace("/", "_")
-    summary_path = os.path.join(SUMMARY_CACHE_DIR, f"{summary_cache_id}.txt")
+    summary_path = os.path.join(SUMMARY_CACHE_DIR(), f"{summary_cache_id}.txt")
     summary = None
     if os.path.exists(summary_path):
         with open(summary_path) as f:

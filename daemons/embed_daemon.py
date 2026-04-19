@@ -64,7 +64,7 @@ def _paper_already_ingested(app_con: sqlite3.Connection, arxiv_id: str) -> bool:
     if not in_papers:
         return False
 
-    with sqlite3.connect(EMBEDDING_CACHE_DB) as emb_con:
+    with sqlite3.connect(EMBEDDING_CACHE_DB()) as emb_con:
         in_search = emb_con.execute(
             "SELECT 1 FROM search_embeddings WHERE arxiv_id = ?", (arxiv_id,)
         ).fetchone() is not None
@@ -133,8 +133,8 @@ def main() -> int:
         help="Process one task (or report empty queue) then exit.",
     )
     parser.add_argument(
-        "--db", default=APP_DB_PATH,
-        help=f"Path to app.db (default: {APP_DB_PATH})",
+        "--db", default=APP_DB_PATH(),
+        help=f"Path to app.db (default: {APP_DB_PATH()})",
     )
     args = parser.parse_args()
 

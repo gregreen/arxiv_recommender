@@ -17,17 +17,34 @@ BASE_DIR             = os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 
 # Allow DATA_DIR to be overridden via environment variable (e.g. for Docker,
 # where persistent data lives on a mounted volume rather than the project root).
-_DATA_DIR            = os.environ.get("DATA_DIR", BASE_DIR)
+# Public so tests can redirect it: `import arxiv_lib.config as cfg; cfg.DATA_DIR = str(tmp_path)`
+DATA_DIR             = os.environ.get("DATA_DIR", BASE_DIR)
 
-EMBEDDING_CACHE_DB   = os.path.join(_DATA_DIR, "embeddings_cache.db")
-APP_DB_PATH          = os.path.join(_DATA_DIR, "app.db")
-SOURCE_CACHE_DIR     = os.path.join(_DATA_DIR, "arxiv_source_cache")
-METADATA_CACHE_DIR   = os.path.join(_DATA_DIR, "arxiv_metadata_cache")
-SUMMARY_CACHE_DIR    = os.path.join(_DATA_DIR, "arxiv_summary_cache")
 
-# Ensure all data directories exist (important on fresh Docker volumes).
-for _d in (SOURCE_CACHE_DIR, METADATA_CACHE_DIR, SUMMARY_CACHE_DIR):
-    os.makedirs(_d, exist_ok=True)
+def EMBEDDING_CACHE_DB() -> str:
+    return os.path.join(DATA_DIR, "embeddings_cache.db")
+
+
+def APP_DB_PATH() -> str:
+    return os.path.join(DATA_DIR, "app.db")
+
+
+def SOURCE_CACHE_DIR() -> str:
+    path = os.path.join(DATA_DIR, "arxiv_source_cache")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def METADATA_CACHE_DIR() -> str:
+    path = os.path.join(DATA_DIR, "arxiv_metadata_cache")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def SUMMARY_CACHE_DIR() -> str:
+    path = os.path.join(DATA_DIR, "arxiv_summary_cache")
+    os.makedirs(path, exist_ok=True)
+    return path
 
 # Tokens JSON file (not committed to source control; kept for reference)
 TOKENS_FILE    = os.path.join(BASE_DIR, "tokens.json")

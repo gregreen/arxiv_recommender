@@ -80,7 +80,7 @@ def main() -> None:
 
     print(f"[{now_str}] cleanup_tasks  max_age={args.max_age_days}d  dry_run={dry_run}")
 
-    db_path = _config.APP_DB_PATH
+    db_path = _config.APP_DB_PATH()
     if not os.path.exists(db_path):
         print(f"Note: {db_path} does not exist — nothing to do.")
         sys.exit(0)

@@ -71,7 +71,7 @@ def _load_titles(arxiv_ids: list[str]) -> dict[str, str]:
     """Batch-fetch titles from app.db; missing IDs map to empty string."""
     if not arxiv_ids:
         return {}
-    with sqlite3.connect(_config.APP_DB_PATH) as con:
+    with sqlite3.connect(_config.APP_DB_PATH()) as con:
         placeholders = ",".join("?" * len(arxiv_ids))
         rows = con.execute(
             f"SELECT arxiv_id, title FROM papers WHERE arxiv_id IN ({placeholders})",
@@ -87,7 +87,7 @@ def _load_primary_categories(arxiv_ids: list[str]) -> list[str]:
     """Return the archive prefix (e.g. 'astro-ph') for each arXiv ID."""
     if not arxiv_ids:
         return []
-    with sqlite3.connect(_config.APP_DB_PATH) as con:
+    with sqlite3.connect(_config.APP_DB_PATH()) as con:
         placeholders = ",".join("?" * len(arxiv_ids))
         rows = con.execute(
             f"SELECT arxiv_id, categories FROM papers WHERE arxiv_id IN ({placeholders})",
@@ -263,9 +263,9 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Discover summary files
     # ------------------------------------------------------------------
-    summary_files = sorted(glob.glob(os.path.join(_config.SUMMARY_CACHE_DIR, "*.txt")))
+    summary_files = sorted(glob.glob(os.path.join(_config.SUMMARY_CACHE_DIR(), "*.txt")))
     if not summary_files:
-        print(f"No summary files found in {_config.SUMMARY_CACHE_DIR}.", file=sys.stderr)
+        print(f"No summary files found in {_config.SUMMARY_CACHE_DIR()}.", file=sys.stderr)
         sys.exit(1)
 
     # Filename stem is already the sanitized arxiv_id (e.g. "2309.06676")
@@ -305,7 +305,7 @@ def main() -> None:
     from tqdm.auto import tqdm
 
     for n, arxiv_id in enumerate(tqdm(pending), 1):
-        summary_file = os.path.join(_config.SUMMARY_CACHE_DIR, f"{arxiv_id}.txt")
+        summary_file = os.path.join(_config.SUMMARY_CACHE_DIR(), f"{arxiv_id}.txt")
         with open(summary_file, "r", encoding="utf-8") as f:
             summary = f.read().strip()
 

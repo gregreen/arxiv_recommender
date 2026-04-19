@@ -60,7 +60,7 @@ def _init_embedding_db() -> None:
     global _embedding_db_initialized
     if _embedding_db_initialized:
         return
-    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+    with sqlite3.connect(EMBEDDING_CACHE_DB()) as con:
         con.execute("PRAGMA journal_mode=WAL")
         con.execute(
             "CREATE TABLE IF NOT EXISTS search_embeddings "
@@ -82,7 +82,7 @@ def store_search_term_embedding(query: str, vector: np.ndarray) -> None:
     """Upsert a search-query embedding into search_term_embeddings."""
     _init_embedding_db()
     blob = vector.astype(np.float32).tobytes()
-    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+    with sqlite3.connect(EMBEDDING_CACHE_DB()) as con:
         con.execute(
             "INSERT OR REPLACE INTO search_term_embeddings VALUES (?, ?)",
             (query, blob),
@@ -92,7 +92,7 @@ def store_search_term_embedding(query: str, vector: np.ndarray) -> None:
 def load_search_term_embedding(query: str) -> "np.ndarray | None":
     """Return the cached embedding for *query*, or None if not found."""
     _init_embedding_db()
-    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+    with sqlite3.connect(EMBEDDING_CACHE_DB()) as con:
         row = con.execute(
             "SELECT vector FROM search_term_embeddings WHERE query = ?",
             (query,),
@@ -105,7 +105,7 @@ def load_search_term_embedding(query: str) -> "np.ndarray | None":
 def load_embedding_cache() -> dict[str, np.ndarray]:
     """Load all search embeddings from the cache DB. Returns a dict mapping arXiv ID to embedding vector."""
     _init_embedding_db()
-    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+    with sqlite3.connect(EMBEDDING_CACHE_DB()) as con:
         rows = con.execute("SELECT arxiv_id, vector FROM search_embeddings").fetchall()
     return {aid: np.frombuffer(blob, dtype=np.float32) for aid, blob in rows}
 
@@ -114,7 +114,7 @@ def save_embedding_cache(cache: dict[str, np.ndarray]) -> None:
     """Bulk-upsert a dict of search embeddings into the cache DB."""
     _init_embedding_db()
     rows = [(aid, vec.astype(np.float32).tobytes()) for aid, vec in cache.items()]
-    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+    with sqlite3.connect(EMBEDDING_CACHE_DB()) as con:
         con.executemany("INSERT OR REPLACE INTO search_embeddings VALUES (?, ?)", rows)
 
 
@@ -132,7 +132,7 @@ def load_from_arxiv_metadata_cache(arxiv_ids: list[str]) -> dict:
         return {}
 
     from arxiv_lib.appdb import get_connection
-    with get_connection(APP_DB_PATH) as con:
+    with get_connection(APP_DB_PATH()) as con:
         placeholders = ",".join("?" * len(arxiv_ids))
         rows = con.execute(
             f"SELECT arxiv_id, title, abstract, authors "
@@ -175,7 +175,7 @@ def write_to_arxiv_metadata_cache(metadata_dict: dict[str, dict]) -> None:
         )
         for aid, meta in metadata_dict.items()
     ]
-    with get_connection(APP_DB_PATH) as con:
+    with get_connection(APP_DB_PATH()) as con:
         con.executemany(
             """
             INSERT OR REPLACE INTO papers
@@ -784,7 +784,7 @@ def load_cached_arxiv_source(arxiv_id: str) -> str | None:
     """Returns the cached LaTeX source for the given arXiv ID, or None if not cached."""
     # Old-style arXiv IDs with slashes are stored with slashes replaced by underscores
     arxiv_id_clean = sanitize_old_style_arxiv_id(arxiv_id)
-    cache_fname = os.path.join(SOURCE_CACHE_DIR, f"{arxiv_id_clean}.tex")
+    cache_fname = os.path.join(SOURCE_CACHE_DIR(), f"{arxiv_id_clean}.tex")
     if os.path.exists(cache_fname):
         with open(cache_fname, "r", encoding="utf-8") as f:
             return f.read()
@@ -806,7 +806,7 @@ def get_arxiv_source(arxiv_id: str) -> str:
 
     # arXiv-to-prompt renames old-style IDs like hep-th/9901001 to hep-th_9901001
     arxiv_id_clean = sanitize_old_style_arxiv_id(arxiv_id)
-    cache_fname = os.path.join(SOURCE_CACHE_DIR, f"{arxiv_id_clean}.tex")
+    cache_fname = os.path.join(SOURCE_CACHE_DIR(), f"{arxiv_id_clean}.tex")
     with open(cache_fname, "w", encoding="utf-8") as f:
         f.write(latex)
 
@@ -833,7 +833,7 @@ def report_compression_stats(max_tokens: int | None = None) -> None:
     """
     if max_tokens is None:
         max_tokens = LLM_CONFIG.get("embedding", {}).get("max_input_tokens", 24576)
-    tex_files = sorted(glob.glob(os.path.join(SOURCE_CACHE_DIR, "*.tex")))
+    tex_files = sorted(glob.glob(os.path.join(SOURCE_CACHE_DIR(), "*.tex")))
     if not tex_files:
         print("No cached .tex files found.")
         return
@@ -918,9 +918,8 @@ def summarize_arxiv_paper(
     _api_key   = API_KEYS.get(cfg.get("api_key_name", "summary_api_key"), "")
     _base_url  = cfg.get("base_url", "https://router.huggingface.co/v1")
     _completion_kwargs = cfg.get("completion_kwargs", {})
-    os.makedirs(SUMMARY_CACHE_DIR, exist_ok=True)
     arxiv_id_clean = sanitize_old_style_arxiv_id(arxiv_id)
-    cache_file = os.path.join(SUMMARY_CACHE_DIR, f"{arxiv_id_clean}.txt")
+    cache_file = os.path.join(SUMMARY_CACHE_DIR(), f"{arxiv_id_clean}.txt")
     if os.path.exists(cache_file):
         with open(cache_file, "r", encoding="utf-8") as f:
             return f.read()
@@ -1087,7 +1086,7 @@ def fetch_search_embedding(arxiv_id: str) -> np.ndarray:
     Uses SEARCH_EMBEDDING_PROMPT. Stored in the ``search_embeddings`` table.
     """
     _init_embedding_db()
-    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+    with sqlite3.connect(EMBEDDING_CACHE_DB()) as con:
         row = con.execute(
             "SELECT vector FROM search_embeddings WHERE arxiv_id = ?", (arxiv_id,)
         ).fetchone()
@@ -1109,7 +1108,7 @@ def fetch_recommendation_embedding(arxiv_id: str) -> np.ndarray:
     Uses RECOMMENDATION_EMBEDDING_PROMPT. Stored in the ``recommendation_embeddings`` table.
     """
     _init_embedding_db()
-    with sqlite3.connect(EMBEDDING_CACHE_DB) as con:
+    with sqlite3.connect(EMBEDDING_CACHE_DB()) as con:
         row = con.execute(
             "SELECT vector FROM recommendation_embeddings WHERE arxiv_id = ?", (arxiv_id,)
         ).fetchone()

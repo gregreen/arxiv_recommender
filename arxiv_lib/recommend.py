@@ -76,7 +76,7 @@ def _load_vectors(arxiv_ids: list[str]) -> dict[str, np.ndarray]:
         return {}
     placeholders = ",".join("?" * len(arxiv_ids))
     vectors: dict[str, np.ndarray] = {}
-    with sqlite3.connect(EMBEDDING_CACHE_DB) as emb_con:
+    with sqlite3.connect(EMBEDDING_CACHE_DB()) as emb_con:
         rows = emb_con.execute(
             f"SELECT arxiv_id, vector FROM recommendation_embeddings WHERE arxiv_id IN ({placeholders})",
             arxiv_ids,
@@ -98,7 +98,7 @@ def _load_search_paper_vectors(arxiv_ids: list[str]) -> dict[str, np.ndarray]:
         return {}
     placeholders = ",".join("?" * len(arxiv_ids))
     vectors: dict[str, np.ndarray] = {}
-    with sqlite3.connect(EMBEDDING_CACHE_DB) as emb_con:
+    with sqlite3.connect(EMBEDDING_CACHE_DB()) as emb_con:
         rows = emb_con.execute(
             f"SELECT arxiv_id, vector FROM search_embeddings WHERE arxiv_id IN ({placeholders})",
             arxiv_ids,
@@ -149,7 +149,7 @@ def _get_background_negative_ids(
     candidate_ids = [r[0] for r in rows]
     if not candidate_ids:
         return []
-    with sqlite3.connect(EMBEDDING_CACHE_DB) as emb_con:
+    with sqlite3.connect(EMBEDDING_CACHE_DB()) as emb_con:
         placeholders = ",".join("?" * len(candidate_ids))
         embedded = {
             r[0] for r in emb_con.execute(

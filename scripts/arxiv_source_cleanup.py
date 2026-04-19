@@ -92,7 +92,7 @@ def main() -> None:
 
     # ── Section 1: SOURCE_CACHE_DIR .tex files ────────────────────────────────
 
-    source_dir = _config.SOURCE_CACHE_DIR
+    source_dir = _config.SOURCE_CACHE_DIR()
     tex_files = sorted(glob.glob(os.path.join(source_dir, "*.tex")))
     stale_tex = [f for f in tex_files if _is_stale(f, max_age_secs)]
 
