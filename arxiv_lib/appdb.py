@@ -195,7 +195,7 @@ CREATE INDEX IF NOT EXISTS group_invites_token ON group_invites(token);
 # Public API
 # ---------------------------------------------------------------------------
 
-def get_connection(path: str = APP_DB_PATH) -> sqlite3.Connection:
+def get_connection(path: str = APP_DB_PATH()) -> sqlite3.Connection:
     """
     Open and return a WAL-enabled connection to app.db (or the given path).
 
@@ -212,7 +212,7 @@ def get_connection(path: str = APP_DB_PATH) -> sqlite3.Connection:
     return con
 
 
-def init_app_db(path: str = APP_DB_PATH) -> None:
+def init_app_db(path: str = APP_DB_PATH()) -> None:
     """
     Create all app.db tables if they do not already exist.
 

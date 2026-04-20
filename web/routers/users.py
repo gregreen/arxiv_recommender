@@ -102,7 +102,7 @@ def _ensure_ingest_enqueued(db: sqlite3.Connection, arxiv_id: str) -> None:
 
     # Metadata is present — check whether embeddings are missing.
     try:
-        with sqlite3.connect(EMBEDDING_CACHE_DB) as emb_con:
+        with sqlite3.connect(EMBEDDING_CACHE_DB()) as emb_con:
             has_search = emb_con.execute(
                 "SELECT 1 FROM search_embeddings WHERE arxiv_id = ?", (arxiv_id,)
             ).fetchone() is not None

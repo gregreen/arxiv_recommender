@@ -177,13 +177,13 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Print results
     # ------------------------------------------------------------------
-    summary_dir = _config.SUMMARY_CACHE_DIR
+    summary_dir = _config.SUMMARY_CACHE_DIR()
 
     # Try to batch-fetch titles from app.db
     import sqlite3
     id_to_title: dict[str, str] = {}
     try:
-        with sqlite3.connect(_config.APP_DB_PATH) as con:
+        with sqlite3.connect(_config.APP_DB_PATH()) as con:
             top_ids = [arxiv_ids[i] for i in indices]
             placeholders = ",".join("?" * len(top_ids))
             rows = con.execute(

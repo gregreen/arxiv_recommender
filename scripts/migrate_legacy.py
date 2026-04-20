@@ -48,7 +48,7 @@ def _load_metadata_from_json(arxiv_ids: list[str]) -> dict:
         month = aid.split(".")[0]
         by_month.setdefault(month, []).append(aid)
     for month, ids in by_month.items():
-        cache_file = os.path.join(METADATA_CACHE_DIR, f"{month}.json")
+        cache_file = os.path.join(METADATA_CACHE_DIR(), f"{month}.json")
         if not os.path.exists(cache_file):
             continue
         with open(cache_file, "r", encoding="utf-8") as f:
@@ -103,12 +103,12 @@ def migrate(app_db_path: str, embedding_db_path: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--db", default=APP_DB_PATH,
-        help=f"Path to app.db (default: {APP_DB_PATH})",
+        "--db", default=APP_DB_PATH(),
+        help=f"Path to app.db (default: {APP_DB_PATH()})",
     )
     parser.add_argument(
-        "--embedding-db", default=EMBEDDING_CACHE_DB,
-        help=f"Path to embeddings_cache.db (default: {EMBEDDING_CACHE_DB})",
+        "--embedding-db", default=EMBEDDING_CACHE_DB(),
+        help=f"Path to embeddings_cache.db (default: {EMBEDDING_CACHE_DB()})",
     )
     args = parser.parse_args()
 
