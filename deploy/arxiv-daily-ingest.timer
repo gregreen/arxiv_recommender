@@ -2,7 +2,7 @@
 Description=Daily arXiv Paper Ingest Timer
 
 [Timer]
-OnCalendar=Mon,Tue,Wed,Thu,Fri *-*-* 21:30:00
+OnCalendar=Sun,Mon,Tue,Wed,Thu *-*-* 20,21,22,23:30:00
 Timezone=America/New_York
 Persistent=true
 Unit=arxiv-daily-ingest.service

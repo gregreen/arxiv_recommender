@@ -30,8 +30,8 @@ services:
     # Ofelia reads these labels to schedule periodic jobs inside this container.
     labels:
       ofelia.enabled: "true"
-      # Ingest new papers every weekday at 9:30 PM (NYC time, soon after arXiv's daily update)
-      ofelia.job-exec.daily-ingest.schedule: "0 30 21 * * 1-5"
+      # Ingest new papers Sun–Thu at 20:30, 21:30, 22:30, 23:30 NYC time (soon after arXiv's daily update)
+      ofelia.job-exec.daily-ingest.schedule: "0 30 20,21,22,23 * * 0,1,2,3,4"
       ofelia.job-exec.daily-ingest.command: "python3 scripts/cron_daily.py"
       # Cleanup old embeddings every day at 3:00 AM (NYC time, safely after daily ingest)
       ofelia.job-exec.cleanup.schedule: "0 0 3 * * *"
