@@ -98,6 +98,25 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
+  # ── Backup (restic → Backblaze B2) ──────────────────────────────────────────
+  # Requires B2_ACCOUNT_ID, B2_ACCOUNT_KEY, RESTIC_PASSWORD, RESTIC_REPOSITORY
+  # to be set in .env. See scripts/backup.sh for full setup instructions.
+  backup:
+    image: restic/restic:latest
+    restart: unless-stopped
+    entrypoint: ["tail", "-f", "/dev/null"]
+    env_file: .env
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      - data:/app/data:ro
+      - ./scripts/backup.sh:/app/scripts/backup.sh:ro
+    labels:
+      ofelia.enabled: "true"
+      # Run daily at 05:00 NYC time (Ofelia uses the TZ from the scheduler container)
+      ofelia.job-exec.backup.schedule: "0 0 5 * * *"
+      ofelia.job-exec.backup.command: "/bin/sh /app/scripts/backup.sh"
+
 volumes:
   # 'data' is a Docker-managed named volume. Docker stores it at:
   #   /var/lib/docker/volumes/<project>_data/_data/

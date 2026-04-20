@@ -1,0 +1,10 @@
+[Unit]
+Description=arXiv Recommender Backup
+After=network.target
+
+[Service]
+Type=oneshot
+User=<user>
+WorkingDirectory=<project_dir>
+EnvironmentFile=<project_dir>/.env
+ExecStart=/bin/bash <project_dir>/scripts/backup.sh
