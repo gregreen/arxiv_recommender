@@ -41,22 +41,29 @@ export default function MainLayout() {
     clearUser();
   }
 
+  // Push a history entry when opening the detail panel so the browser back
+  // gesture closes it instead of leaving the page.
+  useEffect(() => {
+    function handlePopState() {
+      setSelectedArxivId(null);
+      setSelectedLiked(null);
+      setSelectedScore(null);
+    }
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
   function handleSelect(arxivId: string, liked: number | null, score: number | null) {
     setSelectedArxivId(arxivId);
     setSelectedScore(score);
     // Prefer the cached (user-updated) value over the stale list value.
     setSelectedLiked(likedCache[arxivId] ?? liked);
+    window.history.pushState({ detail: true }, "");
   }
 
   function handleLikedChange(arxivId: string, liked: 1 | -1 | 0) {
     setSelectedLiked(liked);
     setLikedCache((prev) => ({ ...prev, [arxivId]: liked }));
-  }
-
-  function handleClearSelection() {
-    setSelectedArxivId(null);
-    setSelectedLiked(null);
-    setSelectedScore(null);
   }
 
   return (
@@ -123,7 +130,7 @@ export default function MainLayout() {
           {/* Back button — mobile only */}
           <div className="md:hidden shrink-0 flex items-center px-4 py-2 bg-white border-b border-gray-200">
             <button
-              onClick={handleClearSelection}
+              onClick={() => window.history.back()}
               className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 transition-colors"
             >
               ← Return to list

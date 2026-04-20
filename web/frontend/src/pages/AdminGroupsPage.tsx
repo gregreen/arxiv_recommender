@@ -29,8 +29,19 @@ export default function AdminGroupsPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Push a history entry when opening the detail panel so the browser back
+  // gesture closes it instead of leaving the page.
+  useEffect(() => {
+    function handlePopState() {
+      setSelectedId(null);
+    }
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
   function handleSelect(id: number) {
     setSelectedId(id);
+    window.history.pushState({ detail: true }, "");
     setDetail(null);
     setDetailError(null);
     setConfirmDelete(false);
@@ -131,7 +142,7 @@ export default function AdminGroupsPage() {
         {/* Back button — mobile only */}
         <div className="md:hidden shrink-0 flex items-center px-4 py-2 bg-white border-b border-gray-200">
           <button
-            onClick={handleClearSelection}
+            onClick={() => window.history.back()}
             className="flex items-center gap-1.5 text-sm text-red-700 hover:text-red-900 transition-colors"
           >
             ← Return to list
