@@ -21,6 +21,8 @@ from arxiv_lib.config import (
 )
 from arxiv_lib.recommend import (
     NotEnoughDataError,
+    aggregate_group_scores,
+    get_group_recommendations,
     get_or_train_model,
     recommendations_are_stale,
     refresh_recommendations,
@@ -77,6 +79,73 @@ def _make_model(n: int = 20) -> ScoringModel:
     pos = (center_pos + rng.normal(scale=0.1, size=(n, d))).astype(np.float32)
     neg = (center_neg + rng.normal(scale=0.1, size=(n, d))).astype(np.float32)
     return ScoringModel.from_training_data(pos, neg, positive_ids=[])
+
+
+# ---------------------------------------------------------------------------
+# aggregate_group_scores
+# ---------------------------------------------------------------------------
+
+
+class TestAggregateGroupScores:
+    def test_empty_list_returns_empty(self):
+        """An empty member list produces an empty result."""
+        assert aggregate_group_scores([]) == {}
+
+    def test_all_empty_dicts_returns_empty(self):
+        """A list of empty member dicts (no scores) produces an empty result."""
+        assert aggregate_group_scores([{}, {}, {}]) == {}
+
+    def test_output_keys_are_union_of_inputs(self):
+        """Every paper that appears in at least one member's scores must appear
+        in the output; no extra keys are added."""
+        m1 = {"p1": -1.0, "p2": -2.0}
+        m2 = {"p2": -0.5, "p3": -3.0}
+        m3 = {"p1": -0.8, "p3": -1.5, "p4": -4.0}
+        result = aggregate_group_scores([m1, m2, m3])
+        assert set(result.keys()) == {"p1", "p2", "p3", "p4"}
+
+    def test_all_output_values_in_valid_range(self):
+        """For every paper, math.log(v) must be <= 0 (up to a small epsilon for
+        float rounding).  Input scores are realistic log-probabilities in [-20, 0]."""
+        import math
+        rng = np.random.default_rng(seed=42)
+        paper_ids = [f"p{i}" for i in range(20)]
+        members = [
+            {aid: float(rng.uniform(-20.0, 0.0)) for aid in paper_ids}
+            for _ in range(5)
+        ]
+        result = aggregate_group_scores(members)
+        assert set(result.keys()) == set(paper_ids)
+        for aid, v in result.items():
+            assert math.log(v) <= 1e-9, (
+                f"score for {aid!r} out of range: log({v}) = {math.log(v)}"
+            )
+
+    def test_consistent_ordering_preserved(self):
+        """When every member ranks papers in the same order, the aggregated scores
+        must preserve that consensus ranking.
+
+        Setup: for each of 4 members, pick a random range [lo, hi] with hi <= 0,
+        draw 5 scores uniformly from that range, sort them descending, and assign
+        them to papers [p0, p1, p2, p3, p4] in that order so p0 is always ranked
+        first and p4 last."""
+        rng = np.random.default_rng(seed=7)
+        paper_ids = ["p0", "p1", "p2", "p3", "p4"]
+        members = []
+        for _ in range(4):
+            # pick lo < hi <= 0
+            hi = float(rng.uniform(-2.0, 0.0))
+            lo = float(rng.uniform(-20.0, hi - 0.1))
+            raw = rng.uniform(lo, hi, size=5)
+            scores = sorted(raw, reverse=True)  # largest first → p0 gets highest score
+            members.append(dict(zip(paper_ids, scores)))
+
+        result = aggregate_group_scores(members)
+        ranked = sorted(paper_ids, key=lambda aid: result[aid], reverse=True)
+        assert ranked == paper_ids, (
+            f"Expected ordering p0>p1>p2>p3>p4, got {ranked}\n"
+            f"Scores: { {aid: result[aid] for aid in paper_ids} }"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -249,3 +318,214 @@ class TestRefreshRecommendations:
             (_USER_ID,),
         ).fetchone()[0]
         assert duplicates == 0
+
+
+# ---------------------------------------------------------------------------
+# get_group_recommendations
+# ---------------------------------------------------------------------------
+
+# --- helpers for multi-user group scenarios ---
+
+def _insert_user_n(con: sqlite3.Connection, user_id: int, email: str) -> None:
+    con.execute(
+        "INSERT OR IGNORE INTO users (id, email, password_hash, is_active, email_verified) "
+        "VALUES (?, ?, 'hash', 1, 1)",
+        (user_id, email),
+    )
+    con.commit()
+
+
+def _like_paper_as(con: sqlite3.Connection, arxiv_id: str, user_id: int) -> None:
+    con.execute(
+        "INSERT OR IGNORE INTO user_papers (user_id, arxiv_id, liked) VALUES (?, ?, 1)",
+        (user_id, arxiv_id),
+    )
+    con.commit()
+
+
+def _insert_group(con: sqlite3.Connection, *member_user_ids: int) -> int:
+    """Create a group, add members (first is admin), return group_id."""
+    con.execute("INSERT INTO groups (name) VALUES ('Test Group')")
+    group_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+    for i, uid in enumerate(member_user_ids):
+        con.execute(
+            "INSERT INTO group_members (group_id, user_id, is_admin) VALUES (?, ?, ?)",
+            (group_id, uid, 1 if i == 0 else 0),
+        )
+    con.commit()
+    return group_id
+
+
+def _build_corpus(
+    con: sqlite3.Connection, data_dir, n: int = 70
+) -> list[str]:
+    """Insert n background papers with neg-cluster embeddings; return their arxiv_ids."""
+    ingest._init_embedding_db()
+    rng = np.random.default_rng(seed=0)
+    d = RECOMMENDATION_EMBEDDING_DIM
+    center_neg = np.zeros(d, dtype=np.float32)
+    center_neg[0] = -3.0
+    today = date.today().isoformat()
+    arxiv_ids = [f"bg{i:04d}" for i in range(n)]
+    for i, aid in enumerate(arxiv_ids):
+        con.execute(
+            "INSERT OR IGNORE INTO papers (arxiv_id, title, authors, published_date) "
+            "VALUES (?, ?, '[]', ?)",
+            (aid, f"Background paper {i}", today),
+        )
+        vec = (center_neg + rng.normal(scale=0.05, size=d)).astype(np.float32)
+        with sqlite3.connect(EMBEDDING_CACHE_DB()) as emb:
+            emb.execute(
+                "INSERT OR REPLACE INTO recommendation_embeddings VALUES (?, ?)",
+                (aid, vec.tobytes()),
+            )
+    con.commit()
+    return arxiv_ids
+
+
+def _setup_trainable_user(
+    con: sqlite3.Connection,
+    data_dir,
+    user_id: int,
+    email: str,
+    corpus_ids: list[str],
+) -> list[str]:
+    """Insert user, 4 liked papers with pos-cluster embeddings; return liked_ids."""
+    ingest._init_embedding_db()
+    _insert_user_n(con, user_id, email)
+    rng = np.random.default_rng(seed=user_id * 100)
+    d = RECOMMENDATION_EMBEDDING_DIM
+    center_pos = np.zeros(d, dtype=np.float32)
+    center_pos[0] = 3.0
+    today = date.today().isoformat()
+    liked_ids = [f"u{user_id}_{i}" for i in range(RECOMMEND_MIN_LIKED)]
+    for aid in liked_ids:
+        con.execute(
+            "INSERT OR IGNORE INTO papers (arxiv_id, title, authors, published_date) "
+            "VALUES (?, ?, '[]', ?)",
+            (aid, f"Liked paper {aid}", today),
+        )
+        _like_paper_as(con, aid, user_id)
+        vec = (center_pos + rng.normal(scale=0.05, size=d)).astype(np.float32)
+        with sqlite3.connect(EMBEDDING_CACHE_DB()) as emb:
+            emb.execute(
+                "INSERT OR REPLACE INTO recommendation_embeddings VALUES (?, ?)",
+                (aid, vec.tobytes()),
+            )
+    con.commit()
+    return liked_ids
+
+
+class TestGetGroupRecommendations:
+    def test_invalid_time_window_raises(self, app_db_con, data_dir):
+        """Passing an unrecognised time_window string must raise ValueError immediately."""
+        _insert_user_n(app_db_con, 1, "u1@test.com")
+        group_id = _insert_group(app_db_con, 1)
+        with pytest.raises(ValueError, match="Unknown time window"):
+            get_group_recommendations(app_db_con, group_id, "badwindow", 1)
+
+    def test_empty_group_returns_empty(self, app_db_con, data_dir):
+        """A group with no members returns empty results and zero counts."""
+        group_id = _insert_group(app_db_con)
+        results, group_member_count, active_member_count = get_group_recommendations(
+            app_db_con, group_id, "week", 1
+        )
+        assert results == []
+        assert group_member_count == 0
+        assert active_member_count == 0
+
+    def test_all_members_too_few_liked_returns_empty(self, app_db_con, data_dir):
+        """When every group member has too few liked papers to train a model,
+        results are empty, active_member_count is 0, but group_member_count is accurate."""
+        ingest._init_embedding_db()
+        for uid, email in [(1, "u1@test.com"), (2, "u2@test.com")]:
+            _insert_user_n(app_db_con, uid, email)
+            # 1 liked paper with no embedding → NotEnoughDataError for each user
+            _insert_paper(app_db_con, f"sparse{uid}", date.today().isoformat())
+            _like_paper_as(app_db_con, f"sparse{uid}", uid)
+        group_id = _insert_group(app_db_con, 1, 2)
+        results, group_member_count, active_member_count = get_group_recommendations(
+            app_db_con, group_id, "week", 1
+        )
+        assert results == []
+        assert group_member_count == 2
+        assert active_member_count == 0
+
+    def test_single_member_scores_in_valid_range(self, app_db_con, data_dir):
+        """With one fully-trained member, all returned scores must be ≤ 0
+        (they are log-probabilities; a small epsilon handles float rounding)."""
+        corpus = _build_corpus(app_db_con, data_dir)
+        _setup_trainable_user(app_db_con, data_dir, 1, "u1@test.com", corpus)
+        group_id = _insert_group(app_db_con, 1)
+        results, group_member_count, active_member_count = get_group_recommendations(
+            app_db_con, group_id, "week", 1
+        )
+        assert len(results) > 0
+        assert group_member_count == 1
+        assert active_member_count == 1
+        assert all(r["score"] <= 1e-9 for r in results), (
+            f"Score out of range: {max(r['score'] for r in results)}"
+        )
+
+    def test_two_members_scores_in_valid_range(self, app_db_con, data_dir):
+        """With two fully-trained members, all aggregated scores must still be ≤ 0
+        and both members must appear in active_member_count."""
+        corpus = _build_corpus(app_db_con, data_dir)
+        _setup_trainable_user(app_db_con, data_dir, 1, "u1@test.com", corpus)
+        _setup_trainable_user(app_db_con, data_dir, 2, "u2@test.com", corpus)
+        group_id = _insert_group(app_db_con, 1, 2)
+        results, group_member_count, active_member_count = get_group_recommendations(
+            app_db_con, group_id, "week", 1
+        )
+        assert group_member_count == 2
+        assert active_member_count == 2
+        assert len(results) > 0
+        assert all(r["score"] <= 1e-9 for r in results), (
+            f"Score out of range: {max(r['score'] for r in results)}"
+        )
+
+    def test_partial_exclusion_active_member_count(self, app_db_con, data_dir):
+        """Members with too few liked papers are silently excluded: they contribute
+        to group_member_count but not active_member_count, and the remaining members
+        still produce valid results with scores ≤ 0."""
+        corpus = _build_corpus(app_db_con, data_dir)
+        _setup_trainable_user(app_db_con, data_dir, 1, "u1@test.com", corpus)
+        _setup_trainable_user(app_db_con, data_dir, 2, "u2@test.com", corpus)
+        # User 3: 1 liked paper, no embedding → NotEnoughDataError
+        ingest._init_embedding_db()
+        _insert_user_n(app_db_con, 3, "u3@test.com")
+        _insert_paper(app_db_con, "sparse3", date.today().isoformat())
+        _like_paper_as(app_db_con, "sparse3", 3)
+        group_id = _insert_group(app_db_con, 1, 2, 3)
+        results, group_member_count, active_member_count = get_group_recommendations(
+            app_db_con, group_id, "week", 1
+        )
+        assert group_member_count == 3
+        assert active_member_count == 2
+        assert len(results) > 0
+        assert all(r["score"] <= 1e-9 for r in results), (
+            f"Score out of range: {max(r['score'] for r in results)}"
+        )
+
+    def test_requesting_user_liked_status_reflected(self, app_db_con, data_dir):
+        """The 'liked' field in each result reflects the requesting user's personal
+        like status: 1 for papers they liked, None for papers they have no opinion on."""
+        corpus = _build_corpus(app_db_con, data_dir)
+        liked_ids = _setup_trainable_user(app_db_con, data_dir, 1, "u1@test.com", corpus)
+        group_id = _insert_group(app_db_con, 1)
+        results, _, _ = get_group_recommendations(app_db_con, group_id, "week", 1)
+        assert len(results) > 0
+
+        result_map = {r["arxiv_id"]: r for r in results}
+
+        # At least one of the user's liked papers should appear in the results
+        liked_in_results = [aid for aid in liked_ids if aid in result_map]
+        assert liked_in_results, "Expected at least one liked paper in results"
+        for aid in liked_in_results:
+            assert result_map[aid]["liked"] == 1
+
+        # Corpus (background) papers were not liked; their liked field should be None
+        corpus_in_results = [aid for aid in corpus if aid in result_map]
+        assert corpus_in_results, "Expected at least one corpus paper in results"
+        for aid in corpus_in_results:
+            assert result_map[aid]["liked"] is None

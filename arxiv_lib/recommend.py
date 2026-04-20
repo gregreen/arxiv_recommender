@@ -598,8 +598,8 @@ def _softmax_sum(member_scores: list[dict[str, float]]) -> dict[str, float]:
 
     For each member i with cached scores {paper_j: s_ij}:
       1. p_ij = exp(s_ij)
-      2. Z_i  = sum_j(p_ij)          (normalisation constant)
-      3. norm_ij = p_ij / Z_i         (member's probability distribution over papers)
+      2. Z_i  = sum_j(p_ij)    (normalisation constant)
+      3. norm_ij = p_ij / Z_i  (member's probability distribution over papers)
     Group score for paper j = mean_i(norm_ij)  (papers absent from a member's
     cache contribute 0, naturally surfacing papers liked by multiple members).
 
