@@ -74,41 +74,40 @@ export default function MainLayout() {
         <NavMenu email={user?.email} onLogout={handleLogout} />
       </nav>
 
-      {/* Group/personal switcher — only shown when user is in at least one group */}
-      {groups.length > 0 && (
-        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-200 bg-white shrink-0 overflow-x-auto">
-          <button
-            onClick={() => setActiveGroupId(null)}
-            className={`px-3 py-1 rounded text-sm font-medium whitespace-nowrap transition-colors ${
-              activeGroupId === null
-                ? "bg-blue-600 text-white"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            }`}
-          >
-            Personal
-          </button>
-          {groups.map((g) => (
-            <button
-              key={g.id}
-              onClick={() => setActiveGroupId(g.id)}
-              className={`px-3 py-1 rounded text-sm font-medium whitespace-nowrap transition-colors ${
-                activeGroupId === g.id
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              }`}
-            >
-              {g.name}
-            </button>
-          ))}
-        </div>
-      )}
-
       {/* Two-pane body */}
       <div className="relative flex flex-1 overflow-hidden">
         {/* Left: recommendation list */}
         <div className={`absolute inset-0 w-full flex flex-col bg-white transition-transform duration-300 ease-in-out
           md:relative md:w-96 md:min-w-0 md:shrink-0 md:border-r md:border-gray-200 md:translate-x-0
           ${selectedArxivId !== null ? "-translate-x-full" : "translate-x-0"}`}>
+          {/* Group/personal switcher — only shown when user is in at least one group */}
+          {groups.length > 0 && (
+            <div className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-200 bg-white shrink-0 overflow-x-auto">
+              <button
+                onClick={() => setActiveGroupId(null)}
+                className={`px-3 py-1 rounded text-sm font-medium whitespace-nowrap transition-colors ${
+                  activeGroupId === null
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                Personal
+              </button>
+              {groups.map((g) => (
+                <button
+                  key={g.id}
+                  onClick={() => setActiveGroupId(g.id)}
+                  className={`px-3 py-1 rounded text-sm font-medium whitespace-nowrap transition-colors ${
+                    activeGroupId === g.id
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  {g.name}
+                </button>
+              ))}
+            </div>
+          )}
           <RecommendationList
             selectedArxivId={selectedArxivId}
             onSelect={handleSelect}
