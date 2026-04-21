@@ -98,11 +98,13 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
-  # ── Backup (restic → Backblaze B2) ──────────────────────────────────────────
-  # Requires B2_ACCOUNT_ID, B2_ACCOUNT_KEY, RESTIC_PASSWORD, RESTIC_REPOSITORY
+  # ── Backup (restic → cloud object storage) ──────────────────────────────────
+  # Requires RESTIC_PASSWORD, RESTIC_REPOSITORY, and backend credentials
   # to be set in .env. See scripts/backup.sh for full setup instructions.
   backup:
-    image: restic/restic:latest
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backup
     restart: unless-stopped
     entrypoint: ["tail", "-f", "/dev/null"]
     env_file: .env
