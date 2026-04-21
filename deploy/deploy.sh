@@ -30,9 +30,13 @@ for var in USER PROJECT_DIR DOMAIN; do
     fi
 done
 
-for cmd in python3 node npm caddy systemctl; do
+for cmd in python3 node npm xcaddy systemctl; do
     if ! command -v "$cmd" &>/dev/null; then
         echo "ERROR: '$cmd' not found on PATH. Please install it and retry." >&2
+        echo "       xcaddy: go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest" >&2
+        echo "       Behind GFW: GOPROXY=https://goproxy.cn,direct go install ..." >&2
+        echo "       Or skip xcaddy and download a pre-built Caddy binary with plugins" >&2
+        echo "       from https://caddyserver.com/download (select mholt/caddy-ratelimit)" >&2
         exit 1
     fi
 done
@@ -141,6 +145,18 @@ do
         > "/etc/systemd/system/$unit_file"
     chmod 644 "/etc/systemd/system/$unit_file"
 done
+
+# ── Build and install custom Caddy (with rate-limit plugin) ──────────────────
+echo "==> Building Caddy with rate-limit plugin (xcaddy)..."
+xcaddy build \
+    --with github.com/mholt/caddy-ratelimit \
+    --output /usr/local/bin/caddy
+chown root:root /usr/local/bin/caddy
+chmod 755 /usr/local/bin/caddy
+# Allow Caddy to bind privileged ports (80/443) without running as root
+setcap cap_net_bind_service=+ep /usr/local/bin/caddy
+echo "    Caddy installed to /usr/local/bin/caddy"
+caddy version
 
 # ── Caddyfile ──────────────────────────────────────────────────────────────────
 echo "==> Installing Caddyfile..."

@@ -71,7 +71,9 @@ services:
 
   # ── Caddy (TLS-terminating reverse proxy) ───────────────────────────────────
   caddy:
-    image: caddy:2-alpine
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.caddy
     restart: unless-stopped
     ports:
       - "80:80"

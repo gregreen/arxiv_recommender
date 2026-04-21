@@ -18,6 +18,17 @@
         format json
     }
 
+    # Global per-IP rate limit: 120 requests/minute (~2/sec average).
+    # Exceeding this returns HTTP 429. The limit is high enough to never
+    # affect legitimate users but cuts off automated scanners immediately.
+    rate_limit {
+        zone global_per_ip {
+            key    {remote_host}
+            events 120
+            window 1m
+        }
+    }
+
     header {
         X-Frame-Options "SAMEORIGIN"
         X-Content-Type-Options "nosniff"
