@@ -14,8 +14,9 @@ import numpy as np
 import pytest
 
 import arxiv_lib.ingest as ingest
-from arxiv_lib.config import EMBEDDING_CACHE_DB, EMBEDDING_STORAGE_DIM, SUMMARY_CACHE_DIR
+from arxiv_lib.config import EMBEDDING_CACHE_DB, EMBEDDING_STORAGE_DIM, SUMMARY_CACHE_DIR, SUMMARY_REQUIRED_HEADINGS
 from arxiv_lib.ingest import (
+    _validate_summary,
     fetch_recommendation_embedding,
     fetch_search_embedding,
     summarize_arxiv_paper,
@@ -166,6 +167,75 @@ class TestSummarizeArxivPaper:
         ):
             with pytest.raises(RuntimeError, match="Summary API call failed"):
                 summarize_arxiv_paper(_ARXIV_ID)
+
+    def test_truncated_llm_response_raises_and_does_not_cache(self, data_dir):
+        """A summary missing required headings should raise RuntimeError and not be cached."""
+        truncated = "Keywords: testing\nScientific Questions: Does mocking work?\n"
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value.choices = [
+            MagicMock(message=MagicMock(content=truncated))
+        ]
+
+        with (
+            patch("arxiv_lib.ingest.OpenAI", return_value=mock_client),
+            patch("arxiv_lib.ingest.get_arxiv_metadata", return_value=_FAKE_METADATA),
+            patch("arxiv_lib.ingest.get_arxiv_source", return_value=r"\section{Intro} Hello"),
+            patch("arxiv_lib.ingest.LLM_CONFIG", {
+                "summary": {
+                    "model": "test-model",
+                    "max_input_tokens": 98304,
+                    "base_url": "https://example.com/v1",
+                    "api_key_name": "summary_api_key",
+                    "cot_closing_tags": [],
+                    "completion_kwargs": {},
+                }
+            }),
+        ):
+            with pytest.raises(RuntimeError, match="Incomplete summary"):
+                summarize_arxiv_paper(_ARXIV_ID)
+
+        cache_file = os.path.join(SUMMARY_CACHE_DIR(), f"{_ARXIV_ID}.txt")
+        assert not os.path.exists(cache_file), "Truncated summary must not be written to cache"
+
+
+# ---------------------------------------------------------------------------
+# _validate_summary
+# ---------------------------------------------------------------------------
+
+
+class TestValidateSummary:
+    def test_valid_summary_passes(self):
+        """A summary containing all required headings must not raise."""
+        _validate_summary(_ARXIV_ID, _FAKE_SUMMARY)  # no exception
+
+    def test_missing_one_heading_raises(self):
+        """A summary missing one heading raises RuntimeError naming that heading."""
+        incomplete = _FAKE_SUMMARY.replace("Key takeaway:", "")
+        with pytest.raises(RuntimeError) as exc_info:
+            _validate_summary(_ARXIV_ID, incomplete)
+        assert "Key takeaway:" in str(exc_info.value)
+
+    def test_truncated_summary_raises_listing_all_missing(self):
+        """A severely truncated summary raises RuntimeError listing every missing heading."""
+        truncated = "Keywords: foo\nScientific Questions: bar"
+        with pytest.raises(RuntimeError) as exc_info:
+            _validate_summary("1805.03653", truncated)
+        msg = str(exc_info.value)
+        for heading in ["Data:", "Methods:", "Results:", "Conclusions:", "Key takeaway:"]:
+            assert heading in msg, f"Expected '{heading}' to appear in error message"
+
+    def test_error_message_includes_length(self):
+        """RuntimeError message should report the total summary length."""
+        with pytest.raises(RuntimeError, match=r"total length: \d+ chars"):
+            _validate_summary(_ARXIV_ID, "Keywords: only")
+
+    def test_headings_parsed_from_prompt_file(self):
+        """SUMMARY_REQUIRED_HEADINGS must contain exactly the 7 expected section labels."""
+        expected = [
+            "Keywords:", "Scientific Questions:", "Data:", "Methods:",
+            "Results:", "Conclusions:", "Key takeaway:",
+        ]
+        assert SUMMARY_REQUIRED_HEADINGS == expected
 
 
 # ---------------------------------------------------------------------------

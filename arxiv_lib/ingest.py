@@ -43,9 +43,30 @@ from arxiv_lib.config import (
     API_KEYS,
     LLM_CONFIG,
     SUMMARIZE_SYSTEM_PROMPT,
+    SUMMARY_REQUIRED_HEADINGS,
     SEARCH_EMBEDDING_PROMPT,
     RECOMMENDATION_EMBEDDING_PROMPT
 )
+
+
+# ---------------------------------------------------------------------------
+# Summary validation
+# ---------------------------------------------------------------------------
+
+def _validate_summary(arxiv_id: str, summary: str) -> None:
+    """
+    Raise RuntimeError if *summary* is missing any required section heading.
+
+    Required headings are defined in system_prompt_summary.txt and parsed into
+    SUMMARY_REQUIRED_HEADINGS by config.py, so they stay in sync with the prompt.
+    """
+    missing = [h for h in SUMMARY_REQUIRED_HEADINGS if h not in summary]
+    if missing:
+        raise RuntimeError(
+            f"Incomplete summary for {arxiv_id} — missing section(s): "
+            + ", ".join(missing)
+            + f" (total length: {len(summary)} chars)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -993,6 +1014,8 @@ def summarize_arxiv_paper(
             default=0,
         )
         summary = summary[best:].strip()
+
+    _validate_summary(arxiv_id, summary)
 
     with open(cache_file, "w", encoding="utf-8") as f:
         f.write(summary)

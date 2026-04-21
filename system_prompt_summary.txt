@@ -31,3 +31,5 @@ State the broader astrophysical implications of this work for its specific subfi
 
 Key takeaway: <1-2 sentences>
 State the single most important and novel insight of the paper. Tailor this to the paper type (e.g., a specific dataset characteristic for a data release, or the primary physical mechanism for a theory paper).
+
+REQUIRED_HEADINGS: Keywords: | Scientific Questions: | Data: | Methods: | Results: | Conclusions: | Key takeaway:

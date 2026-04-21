@@ -62,7 +62,18 @@ USER_AGENT = "arxiv-recommender/1.0"
 # LLM summarization prompt
 # ---------------------------------------------------------------------------
 with open(os.path.join(BASE_DIR, "system_prompt_summary.txt")) as f:
-    SUMMARIZE_SYSTEM_PROMPT = f.read().strip()
+    _prompt_raw = f.read()
+_prompt_lines = _prompt_raw.splitlines()
+_heading_line = next((l for l in _prompt_lines if l.startswith("REQUIRED_HEADINGS:")), None)
+SUMMARIZE_SYSTEM_PROMPT: str = "\n".join(
+    l for l in _prompt_lines if not l.startswith("REQUIRED_HEADINGS:")
+).strip()
+# Section headings the LLM must produce; parsed from system_prompt_summary.txt so
+# they stay in sync with the prompt automatically.
+SUMMARY_REQUIRED_HEADINGS: list[str] = (
+    [h.strip() for h in _heading_line.removeprefix("REQUIRED_HEADINGS:").split("|")]
+    if _heading_line else []
+)
 
 # ---------------------------------------------------------------------------
 # Embedding
