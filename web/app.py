@@ -76,10 +76,12 @@ def create_app() -> FastAPI:
         # Serve static assets directly; fall back to index.html for SPA routing.
         app.mount("/assets", StaticFiles(directory=_dist / "assets"), name="assets")
 
+        _dist_resolved = _dist.resolve()
+
         @app.get("/{full_path:path}")
         async def serve_spa(full_path: str):
-            file_path = _dist / full_path
-            if file_path.is_file():
+            file_path = (_dist / full_path).resolve()
+            if file_path.is_relative_to(_dist_resolved) and file_path.is_file():
                 return FileResponse(file_path)
             return FileResponse(_dist / "index.html")
 
