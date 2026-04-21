@@ -38,11 +38,6 @@ export default function LibraryPage() {
     window.history.pushState({ detail: true }, "");
   }
 
-  function handleClearSelection() {
-    setSelectedArxivId(null);
-    setSelectedLiked(null);
-  }
-
   function handleLikedChange(arxivId: string, liked: 1 | -1 | 0) {
     setSelectedLiked(liked);
     setLikedCache((prev) => ({ ...prev, [arxivId]: liked }));

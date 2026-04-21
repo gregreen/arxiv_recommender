@@ -52,11 +52,6 @@ export default function AdminGroupsPage() {
       .finally(() => setDetailLoading(false));
   }
 
-  function handleClearSelection() {
-    setSelectedId(null);
-    setDetail(null);
-    setConfirmDelete(false);
-  }
 
   async function handleDelete() {
     if (selectedId === null) return;

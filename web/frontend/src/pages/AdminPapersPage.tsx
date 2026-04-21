@@ -48,11 +48,6 @@ export default function AdminPapersPage() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  function handleClearSelection() {
-    setSelectedArxivId(null);
-    setSelectedLiked(null);
-  }
-
   return (
     <div className="relative flex h-full overflow-hidden">
       {/* Left: list */}
