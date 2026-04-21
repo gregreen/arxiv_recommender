@@ -23,6 +23,7 @@ services:
     env_file: .env
     environment:
       DATA_DIR: /app/data
+      XDG_CACHE_HOME: /app/data/.cache
     volumes:
       - data:/app/data
       - ./api_keys.json:/app/api_keys.json:ro
@@ -65,6 +66,7 @@ services:
     env_file: .env
     environment:
       DATA_DIR: /app/data
+      XDG_CACHE_HOME: /app/data/.cache
     volumes:
       - data:/app/data
       - ./api_keys.json:/app/api_keys.json:ro
