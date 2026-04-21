@@ -174,6 +174,12 @@ IMPORT_DAILY_LIMIT_TIER_B  = 4
 META_INGEST_POLL_INTERVAL  = 5.0 # seconds
 EMBED_INGEST_POLL_INTERVAL = 0.1 # seconds
 
+# Exponential backoff delays (seconds) between consecutive fetch_meta retry attempts.
+# After the k-th failure (k=1,2,3,4), the task is held for META_FETCH_RETRY_DELAYS[k-1]
+# seconds before being eligible for re-claim.  The list has one entry per retry
+# interval, so len(META_FETCH_RETRY_DELAYS) == max_attempts - 1.
+META_FETCH_RETRY_DELAYS: list[int] = [15, 120, 960, 7680]  # 15 s, 2 min, 16 min, 128 min
+
 # Maximum number of 'fetch_meta' tasks claimed and processed in one S2 batch call.
 INGEST_META_BATCH_SIZE = 256
 

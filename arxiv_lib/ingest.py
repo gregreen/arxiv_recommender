@@ -351,6 +351,45 @@ def fetch_arxiv_metadata(arxiv_ids: list[str]) -> dict[str, dict]:
     return results
 
 
+def check_arxiv_exists(arxiv_id: str) -> bool | None:
+    """
+    Confirm whether a paper exists on arXiv using a single HEAD request.
+
+    Uses ``export.arxiv.org`` (same host as the Atom API) with a short
+    timeout so it never blocks the daemon for long.
+
+    Parameters
+    ----------
+    arxiv_id : str
+        Canonical arXiv ID (no version suffix).
+
+    Returns
+    -------
+    bool or None
+        False  — HTTP 404: paper definitively does not exist.
+        True   — HTTP 200: paper exists.
+        None   — any other outcome (5xx, timeout, network error): inconclusive;
+                 do NOT delete on this result.
+    """
+    url = f"https://export.arxiv.org/abs/{arxiv_id}"
+    try:
+        resp = requests.head(url, headers={"User-Agent": USER_AGENT}, timeout=10, allow_redirects=True)
+        if resp.status_code == 404:
+            log.debug("check_arxiv_exists: %s → 404 (does not exist)", arxiv_id)
+            return False
+        if resp.status_code == 200:
+            log.debug("check_arxiv_exists: %s → 200 (exists)", arxiv_id)
+            return True
+        log.warning(
+            "check_arxiv_exists: %s → unexpected status %d — treating as inconclusive",
+            arxiv_id, resp.status_code,
+        )
+        return None
+    except requests.RequestException as exc:
+        log.warning("check_arxiv_exists: %s → request failed (%s) — treating as inconclusive", arxiv_id, exc)
+        return None
+
+
 def fetch_arxiv_metadata_html(arxiv_id: str) -> dict:
     """
     Scrapes title, authors, and abstract from the arXiv abstract page HTML.

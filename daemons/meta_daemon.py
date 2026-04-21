@@ -39,11 +39,13 @@ from arxiv_lib.appdb import (
     fail_task,
     get_connection,
     init_app_db,
+    remove_nonexistent_paper,
 )
 from arxiv_lib.config import (
     API_KEYS,
     APP_DB_PATH,
     INGEST_META_BATCH_SIZE,
+    META_FETCH_RETRY_DELAYS,
     META_INGEST_POLL_INTERVAL,
 )
 from arxiv_lib.ingest import get_arxiv_metadata
@@ -108,8 +110,24 @@ def process_meta_batch(app_con) -> bool:
             complete_task(app_con, task_id)
             enqueued += 1
         else:
-            fail_task(app_con, task_id, "metadata not available after fetch attempt")
+            attempt = task["attempts"]  # already incremented at claim time
+            delay = META_FETCH_RETRY_DELAYS[
+                min(attempt - 1, len(META_FETCH_RETRY_DELAYS) - 1)
+            ]
+            permanently_failed = fail_task(
+                app_con, task_id,
+                "metadata not available after fetch attempt",
+                max_attempts=5,
+                retry_delay_seconds=delay,
+            )
             log.warning("  Metadata unavailable for %s — task failed/retried.", arxiv_id)
+            if permanently_failed:
+                n = remove_nonexistent_paper(app_con, arxiv_id)
+                log.warning(
+                    "  Paper %s exhausted all retries — assumed non-existent, "
+                    "removed from %d user library(ies).",
+                    arxiv_id, n,
+                )
             failed += 1
 
     app_con.commit()
