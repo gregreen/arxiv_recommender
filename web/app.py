@@ -43,6 +43,12 @@ def create_app() -> FastAPI:
         title="arXiv Recommender API",
         version="0.1.0",
         lifespan=lifespan,
+        # Disable built-in API docs and schema endpoints. Leaving them enabled
+        # gives attackers a free machine-readable description of every endpoint,
+        # parameter, and auth requirement.
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
