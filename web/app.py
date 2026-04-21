@@ -76,13 +76,30 @@ def create_app() -> FastAPI:
         # Serve static assets directly; fall back to index.html for SPA routing.
         app.mount("/assets", StaticFiles(directory=_dist / "assets"), name="assets")
 
+        # Resolve once at startup so every request can use is_relative_to()
+        # without an additional syscall.
         _dist_resolved = _dist.resolve()
 
         @app.get("/{full_path:path}")
         async def serve_spa(full_path: str):
-            file_path = (_dist / full_path).resolve()
+            try:
+                # Collapse any .. segments to a canonical absolute path.
+                # resolve() calls stat() internally, which raises OSError if any
+                # path component is too long (ENAMETOOLONG), inaccessible, etc.
+                file_path = (_dist / full_path).resolve()
+            except OSError:
+                # Treat any filesystem error (e.g. overlong filename from a
+                # scanner probe) as a non-existent path and serve the SPA shell.
+                return FileResponse(_dist / "index.html")
+
+            # Guard against path-traversal: only serve files that resolve to a
+            # path still inside the dist directory.  is_file() confirms the path
+            # is a regular file (not a directory or symlink to outside dist).
             if file_path.is_relative_to(_dist_resolved) and file_path.is_file():
                 return FileResponse(file_path)
+
+            # All other paths (unknown routes, SPA client-side routes) get the
+            # React entry point so the frontend router can handle them.
             return FileResponse(_dist / "index.html")
 
     return app
