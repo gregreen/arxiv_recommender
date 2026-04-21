@@ -30,21 +30,20 @@ from web.dependencies import get_current_user, get_db
 
 router = APIRouter(prefix="/users/me", tags=["users"])
 
-_NEW_ID_RE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
-_OLD_ID_RE = re.compile(r"^[a-z][a-z-]*(\.[A-Z]{2})?/\d{7}(v\d+)?$")
 _ADS_IMPORT_LIMIT = 64
 
 
 def _validate_arxiv_id(arxiv_id: str) -> str:
-    """Strip version suffix and validate format. Returns clean ID or raises 422."""
-    stripped = arxiv_id.strip()
-    clean = re.sub(r"v\d+$", "", stripped)
-    if not (_NEW_ID_RE.match(stripped) or _OLD_ID_RE.match(stripped)):
+    """Semantically validate and canonicalise an arXiv ID. Raises 422 on failure."""
+    from arxiv_lib.arxiv_id import validate_arxiv_id
+
+    try:
+        return validate_arxiv_id(arxiv_id)
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Invalid arXiv ID format: {arxiv_id!r}",
-        )
-    return clean
+            detail=str(exc),
+        ) from exc
 
 
 def _get_daily_limit(db: sqlite3.Connection, user_id: int) -> int:
@@ -210,7 +209,8 @@ def import_ads(
     db: sqlite3.Connection = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    found_ids = re.findall(r"arXiv:((?:\d{4}\.\d{4,5}|[a-z][a-z-]*(?:\.[A-Z]{2})?/\d{7}))(?:v\d+)?", body.text)
+    # Accept IDs with or without the "arXiv:" prefix (case-insensitive).
+    found_ids = re.findall(r"(?i:arxiv:)?((?:\d{4}\.\d{4,5}|[a-z][a-z-]*(?:\.[A-Z]{2})?/\d{7}))(?:v\d+)?", body.text)
     # Deduplicate while preserving order
     seen: set[str] = set()
     unique_ids = [aid for aid in found_ids if not (aid in seen or seen.add(aid))]  # type: ignore[func-returns-value]
@@ -220,6 +220,16 @@ def import_ads(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Too many IDs ({len(unique_ids)}). Maximum is {_ADS_IMPORT_LIMIT} per import.",
         )
+
+    # Semantically validate each extracted ID; silently drop impossible ones.
+    from arxiv_lib.arxiv_id import validate_arxiv_id
+    valid_ids: list[str] = []
+    invalid = 0
+    for raw_id in unique_ids:
+        try:
+            valid_ids.append(validate_arxiv_id(raw_id))
+        except ValueError:
+            invalid += 1
 
     existing = {
         r[0] for r in db.execute(
@@ -232,7 +242,7 @@ def import_ads(
     daily_limit = _get_daily_limit(db, user["id"])
     recent = _count_recent_imports(db, user["id"])
 
-    for arxiv_id in unique_ids:
+    for arxiv_id in valid_ids:
         if arxiv_id in existing:
             continue
         if recent >= daily_limit:
@@ -251,7 +261,7 @@ def import_ads(
         recent += 1
 
     db.commit()
-    return {"imported": imported, "skipped": len(unique_ids) - imported - rate_limited, "rate_limited": rate_limited}
+    return {"imported": imported, "skipped": len(valid_ids) - imported - rate_limited, "rate_limited": rate_limited, "invalid": invalid}
 
 
 # ---------------------------------------------------------------------------

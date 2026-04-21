@@ -132,9 +132,13 @@ export default function LibraryPage() {
     try {
       const result = await importAds(adsText.trim());
       let msg = `Imported ${result.imported} paper(s), skipped ${result.skipped}.`;
-      const hasWarning = result.rate_limited > 0;
-      if (hasWarning) {
+      let hasWarning = result.rate_limited > 0;
+      if (result.rate_limited > 0) {
         msg += ` ${result.rate_limited} paper(s) were not imported due to the daily import limit.`;
+      }
+      if (result.invalid > 0) {
+        msg += ` ${result.invalid} ID(s) were invalid and ignored.`;
+        hasWarning = true;
       }
       setAdsResult(msg);
       setAdsHasWarning(hasWarning);

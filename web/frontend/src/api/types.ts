@@ -46,6 +46,7 @@ export interface ImportResult {
   imported: number;
   skipped: number;
   rate_limited: number;
+  invalid: number;
 }
 
 export type TimeWindow = "day" | "week" | "month";
