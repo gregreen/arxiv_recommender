@@ -83,6 +83,7 @@ services:
       - ./deploy/Caddyfile.docker:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+      - caddy-logs:/var/log/caddy
     depends_on:
       - api
 
@@ -107,3 +108,4 @@ volumes:
   data:          # app.db, embeddings_cache.db, and all cache directories
   caddy-data:    # Caddy TLS certificates (persisted across restarts)
   caddy-config:  # Caddy runtime config
+  caddy-logs:    # Caddy access logs (JSON, real client IPs)

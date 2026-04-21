@@ -10,6 +10,7 @@ EnvironmentFile=<project_dir>/.env
 ExecStart=<project_dir>/.venv/bin/uvicorn \
     --workers 2 \
     --uds /run/arxiv-recommender/app.sock \
+    --proxy-headers \
     web.app:app
 Restart=on-failure
 RuntimeDirectory=arxiv-recommender

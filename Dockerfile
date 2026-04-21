@@ -39,4 +39,9 @@ COPY --from=frontend-builder /build/dist ./web/frontend/dist/
 
 # Default command: run the API server.
 # Override with 'command:' in docker-compose.yml for daemon containers.
-CMD ["uvicorn", "web.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# --proxy-headers        trust X-Forwarded-For from Caddy so slowapi rate-limits
+#                        by real client IP rather than Caddy's internal bridge IP.
+# --forwarded-allow-ips  accept proxy headers from any source; safe because port
+#                        8000 is bound only within the Docker internal network and
+#                        is never exposed to the public internet.
+CMD ["uvicorn", "web.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--proxy-headers", "--forwarded-allow-ips", "*"]
