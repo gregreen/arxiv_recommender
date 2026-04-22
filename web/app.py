@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -53,6 +53,17 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        logging.getLogger(__name__).error(
+            "Unhandled exception for %s %s: %r",
+            request.method, request.url.path, exc,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"},
+        )
+
     _cors_origins_env = os.environ.get("CORS_ALLOW_ORIGINS", "")
     _cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
     if not _cors_origins:
@@ -88,14 +99,18 @@ def create_app() -> FastAPI:
 
         @app.get("/{full_path:path}")
         async def serve_spa(full_path: str):
+            # Reject paths containing null bytes before they reach the filesystem.
+            if "\x00" in full_path:
+                return FileResponse(_dist / "index.html")
             try:
                 # Collapse any .. segments to a canonical absolute path.
                 # resolve() calls stat() internally, which raises OSError if any
                 # path component is too long (ENAMETOOLONG), inaccessible, etc.
                 file_path = (_dist / full_path).resolve()
-            except OSError:
+            except (OSError, ValueError):
                 # Treat any filesystem error (e.g. overlong filename from a
-                # scanner probe) as a non-existent path and serve the SPA shell.
+                # scanner probe, embedded null byte) as a non-existent path and
+                # serve the SPA shell.
                 return FileResponse(_dist / "index.html")
 
             # Guard against path-traversal: only serve files that resolve to a
