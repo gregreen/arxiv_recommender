@@ -1028,7 +1028,11 @@ def summarize_arxiv_paper(
             max_tokens=16384,
             **_completion_kwargs
         )
-        raw_response = response.choices[0].message.content.strip()
+        content = response.choices[0].message.content
+        if content is None:
+            finish_reason = response.choices[0].finish_reason
+            raise ValueError(f"LLM returned null content (finish_reason={finish_reason!r})")
+        raw_response = content.strip()
     except Exception as e:
         print("Full prompt content was:")
         print("--- System Prompt ---")
