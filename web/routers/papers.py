@@ -8,16 +8,19 @@ import json
 import os
 import sqlite3
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from arxiv_lib.config import SUMMARY_CACHE_DIR
 from web.dependencies import get_current_user, get_db
+from web.limiter import limiter
 
 router = APIRouter(prefix="/papers", tags=["papers"])
 
 
 @router.get("/{arxiv_id:path}")
+@limiter.limit("300/minute")
 def get_paper(
+    request: Request,
     arxiv_id: str,
     db: sqlite3.Connection = Depends(get_db),
     _user=Depends(get_current_user),

@@ -15,8 +15,10 @@ import re
 import sqlite3
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, field_validator
+
+from web.limiter import limiter
 
 from arxiv_lib.appdb import enqueue_task
 from arxiv_lib.config import (
@@ -329,7 +331,10 @@ class SetCategoriesRequest(BaseModel):
 
 
 @router.put("/categories")
+@limiter.limit("15/minute")
+@limiter.limit("200/day")
 def set_categories(
+    request: Request,
     body: SetCategoriesRequest,
     db: sqlite3.Connection = Depends(get_db),
     user=Depends(get_current_user),
