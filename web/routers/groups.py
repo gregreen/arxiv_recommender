@@ -199,7 +199,9 @@ def get_group(
 
 
 @router.get("/{group_id}/recommendations")
+@limiter.limit("30/minute")
 def group_recommendations(
+    request: Request,
     group_id: int,
     window: str = Query(default="week"),
     method: str = Query(default="softmax_sum"),

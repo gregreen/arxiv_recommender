@@ -6,17 +6,20 @@ GET /api/recommendations?window=day|week|month
 
 import sqlite3
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from arxiv_lib.config import ONBOARDING_BROWSE_LIMIT, RECOMMEND_TIME_WINDOWS
 from arxiv_lib.recommend import NotEnoughDataError, get_onboarding_papers, get_recommendations
 from web.dependencies import get_current_user, get_db
+from web.limiter import limiter
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 
 
 @router.get("")
+@limiter.limit("30/minute")
 def recommendations(
+    request: Request,
     window: str = Query(default="week", description="Time window: day, week, or month"),
     db: sqlite3.Connection = Depends(get_db),
     user=Depends(get_current_user),
