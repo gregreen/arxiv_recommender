@@ -1,0 +1,16 @@
+# Dockerfile.caddy — custom Caddy build with rate-limiting plugin
+#
+# Uses xcaddy to compile Caddy with mholt/caddy-ratelimit, which provides
+# a rate_limit directive for per-IP global request throttling at the edge.
+#
+# This image is used by the 'caddy' service in docker-compose.yml.
+
+FROM caddy:builder AS builder
+# Allow overriding the Go module proxy at build time, e.g. for servers behind
+# the GFW:  docker compose build --build-arg GOPROXY=https://goproxy.cn,direct caddy
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
+RUN xcaddy build --with github.com/mholt/caddy-ratelimit
+
+FROM caddy:2-alpine
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy

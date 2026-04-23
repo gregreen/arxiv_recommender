@@ -43,9 +43,30 @@ from arxiv_lib.config import (
     API_KEYS,
     LLM_CONFIG,
     SUMMARIZE_SYSTEM_PROMPT,
+    SUMMARY_REQUIRED_HEADINGS,
     SEARCH_EMBEDDING_PROMPT,
     RECOMMENDATION_EMBEDDING_PROMPT
 )
+
+
+# ---------------------------------------------------------------------------
+# Summary validation
+# ---------------------------------------------------------------------------
+
+def _validate_summary(arxiv_id: str, summary: str) -> None:
+    """
+    Raise RuntimeError if *summary* is missing any required section heading.
+
+    Required headings are defined in system_prompt_summary.txt and parsed into
+    SUMMARY_REQUIRED_HEADINGS by config.py, so they stay in sync with the prompt.
+    """
+    missing = [h for h in SUMMARY_REQUIRED_HEADINGS if h not in summary]
+    if missing:
+        raise RuntimeError(
+            f"Incomplete summary for {arxiv_id} — missing section(s): "
+            + ", ".join(missing)
+            + f" (total length: {len(summary)} chars)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -328,6 +349,45 @@ def fetch_arxiv_metadata(arxiv_ids: list[str]) -> dict[str, dict]:
         }
 
     return results
+
+
+def check_arxiv_exists(arxiv_id: str) -> bool | None:
+    """
+    Confirm whether a paper exists on arXiv using a single HEAD request.
+
+    Uses ``export.arxiv.org`` (same host as the Atom API) with a short
+    timeout so it never blocks the daemon for long.
+
+    Parameters
+    ----------
+    arxiv_id : str
+        Canonical arXiv ID (no version suffix).
+
+    Returns
+    -------
+    bool or None
+        False  — HTTP 404: paper definitively does not exist.
+        True   — HTTP 200: paper exists.
+        None   — any other outcome (5xx, timeout, network error): inconclusive;
+                 do NOT delete on this result.
+    """
+    url = f"https://export.arxiv.org/abs/{arxiv_id}"
+    try:
+        resp = requests.head(url, headers={"User-Agent": USER_AGENT}, timeout=10, allow_redirects=True)
+        if resp.status_code == 404:
+            log.debug("check_arxiv_exists: %s → 404 (does not exist)", arxiv_id)
+            return False
+        if resp.status_code == 200:
+            log.debug("check_arxiv_exists: %s → 200 (exists)", arxiv_id)
+            return True
+        log.warning(
+            "check_arxiv_exists: %s → unexpected status %d — treating as inconclusive",
+            arxiv_id, resp.status_code,
+        )
+        return None
+    except requests.RequestException as exc:
+        log.warning("check_arxiv_exists: %s → request failed (%s) — treating as inconclusive", arxiv_id, exc)
+        return None
 
 
 def fetch_arxiv_metadata_html(arxiv_id: str) -> dict:
@@ -968,7 +1028,11 @@ def summarize_arxiv_paper(
             max_tokens=16384,
             **_completion_kwargs
         )
-        raw_response = response.choices[0].message.content.strip()
+        content = response.choices[0].message.content
+        if content is None:
+            finish_reason = response.choices[0].finish_reason
+            raise ValueError(f"LLM returned null content (finish_reason={finish_reason!r})")
+        raw_response = content.strip()
     except Exception as e:
         print("Full prompt content was:")
         print("--- System Prompt ---")
@@ -993,6 +1057,8 @@ def summarize_arxiv_paper(
             default=0,
         )
         summary = summary[best:].strip()
+
+    _validate_summary(arxiv_id, summary)
 
     with open(cache_file, "w", encoding="utf-8") as f:
         f.write(summary)

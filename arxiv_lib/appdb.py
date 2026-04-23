@@ -226,6 +226,7 @@ def init_app_db(path: str = APP_DB_PATH()) -> None:
             "ALTER TABLE users ADD COLUMN password_reset_token TEXT",
             "ALTER TABLE users ADD COLUMN password_reset_token_expires_at TEXT",
             "ALTER TABLE group_invites ADD COLUMN remaining_uses INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE task_queue ADD COLUMN not_before TEXT",
         ]:
             try:
                 con.execute(stmt)
@@ -308,6 +309,7 @@ def claim_next_task(con: sqlite3.Connection, task_type: str) -> sqlite3.Row | No
          WHERE id = (
                SELECT id FROM task_queue
                 WHERE type = ? AND status = 'pending'
+                  AND (not_before IS NULL OR not_before <= datetime('now'))
                 ORDER BY priority ASC, created_at ASC
                 LIMIT 1
          )
@@ -351,6 +353,7 @@ def claim_next_tasks_batch(
          WHERE id IN (
                SELECT id FROM task_queue
                 WHERE type = ? AND status = 'pending'
+                  AND (not_before IS NULL OR not_before <= datetime('now'))
                 ORDER BY priority ASC, created_at ASC
                 LIMIT ?
          )
@@ -378,7 +381,13 @@ def complete_task(con: sqlite3.Connection, task_id: int) -> None:
     )
 
 
-def fail_task(con: sqlite3.Connection, task_id: int, error: str, max_attempts: int = 3) -> None:
+def fail_task(
+    con: sqlite3.Connection,
+    task_id: int,
+    error: str,
+    max_attempts: int = 3,
+    retry_delay_seconds: int = 0,
+) -> bool:
     """
     Mark a task as failed.
 
@@ -395,12 +404,62 @@ def fail_task(con: sqlite3.Connection, task_id: int, error: str, max_attempts: i
         Error message / traceback to store.
     max_attempts : int
         Maximum number of attempts before permanently failing.
+    retry_delay_seconds : int
+        When resetting to 'pending', set not_before this many seconds from now
+        so the task is not re-claimed until the delay has elapsed.  Ignored
+        when the task is permanently failed.  Default 0 means claim immediately.
+
+    Returns
+    -------
+    bool
+        True if the task is now permanently failed (status='failed'),
+        False if it has been reset to 'pending' for another retry.
     """
     row = con.execute("SELECT attempts FROM task_queue WHERE id=?", (task_id,)).fetchone()
     if row is None:
-        return
+        return False
     new_status = "pending" if row["attempts"] < max_attempts else "failed"
-    con.execute(
-        "UPDATE task_queue SET status=?, error=?, completed_at=datetime('now') WHERE id=?",
-        (new_status, error, task_id),
-    )
+    if new_status == "pending" and retry_delay_seconds > 0:
+        con.execute(
+            "UPDATE task_queue"
+            "   SET status=?, error=?, completed_at=datetime('now'),"
+            "       not_before=datetime('now', ? || ' seconds')"
+            " WHERE id=?",
+            (new_status, error, str(retry_delay_seconds), task_id),
+        )
+    else:
+        con.execute(
+            "UPDATE task_queue"
+            "   SET status=?, error=?, completed_at=datetime('now'), not_before=NULL"
+            " WHERE id=?",
+            (new_status, error, task_id),
+        )
+    return new_status == "failed"
+
+
+def remove_nonexistent_paper(con: sqlite3.Connection, arxiv_id: str) -> int:
+    """
+    Remove a paper that has been confirmed non-existent from all user libraries.
+
+    Deletes from user_papers (all users) and papers (safety net for any
+    partial row).  Does NOT delete from the embeddings cache DB — callers
+    should handle that separately if needed (no embeddings exist for a paper
+    that never had metadata).
+
+    Parameters
+    ----------
+    con : sqlite3.Connection
+        Open app.db connection.  Caller must commit.
+    arxiv_id : str
+        Canonical arXiv ID.
+
+    Returns
+    -------
+    int
+        Number of user_papers rows deleted (i.e. number of affected users).
+    """
+    n = con.execute(
+        "DELETE FROM user_papers WHERE arxiv_id = ?", (arxiv_id,)
+    ).rowcount
+    con.execute("DELETE FROM papers WHERE arxiv_id = ?", (arxiv_id,))
+    return n

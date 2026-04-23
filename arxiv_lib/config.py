@@ -62,7 +62,18 @@ USER_AGENT = "arxiv-recommender/1.0"
 # LLM summarization prompt
 # ---------------------------------------------------------------------------
 with open(os.path.join(BASE_DIR, "system_prompt_summary.txt")) as f:
-    SUMMARIZE_SYSTEM_PROMPT = f.read().strip()
+    _prompt_raw = f.read()
+_prompt_lines = _prompt_raw.splitlines()
+_heading_line = next((l for l in _prompt_lines if l.startswith("REQUIRED_HEADINGS:")), None)
+SUMMARIZE_SYSTEM_PROMPT: str = "\n".join(
+    l for l in _prompt_lines if not l.startswith("REQUIRED_HEADINGS:")
+).strip()
+# Section headings the LLM must produce; parsed from system_prompt_summary.txt so
+# they stay in sync with the prompt automatically.
+SUMMARY_REQUIRED_HEADINGS: list[str] = (
+    [h.strip() for h in _heading_line.removeprefix("REQUIRED_HEADINGS:").split("|")]
+    if _heading_line else []
+)
 
 # ---------------------------------------------------------------------------
 # Embedding
@@ -162,6 +173,12 @@ IMPORT_DAILY_LIMIT_TIER_B  = 4
 # How long the ingest daemons sleep between polls when the task queue is empty.
 META_INGEST_POLL_INTERVAL  = 5.0 # seconds
 EMBED_INGEST_POLL_INTERVAL = 0.1 # seconds
+
+# Exponential backoff delays (seconds) between consecutive fetch_meta retry attempts.
+# After the k-th failure (k=1,2,3,4), the task is held for META_FETCH_RETRY_DELAYS[k-1]
+# seconds before being eligible for re-claim.  The list has one entry per retry
+# interval, so len(META_FETCH_RETRY_DELAYS) == max_attempts - 1.
+META_FETCH_RETRY_DELAYS: list[int] = [15, 120, 960, 7680]  # 15 s, 2 min, 16 min, 128 min
 
 # Maximum number of 'fetch_meta' tasks claimed and processed in one S2 batch call.
 INGEST_META_BATCH_SIZE = 256

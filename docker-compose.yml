@@ -23,6 +23,7 @@ services:
     env_file: .env
     environment:
       DATA_DIR: /app/data
+      XDG_CACHE_HOME: /app/data/.cache
     volumes:
       - data:/app/data
       - ./api_keys.json:/app/api_keys.json:ro
@@ -65,13 +66,16 @@ services:
     env_file: .env
     environment:
       DATA_DIR: /app/data
+      XDG_CACHE_HOME: /app/data/.cache
     volumes:
       - data:/app/data
       - ./api_keys.json:/app/api_keys.json:ro
 
   # ── Caddy (TLS-terminating reverse proxy) ───────────────────────────────────
   caddy:
-    image: caddy:2-alpine
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.caddy
     restart: unless-stopped
     ports:
       - "80:80"
@@ -83,6 +87,7 @@ services:
       - ./deploy/Caddyfile.docker:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+      - caddy-logs:/var/log/caddy
     depends_on:
       - api
 
@@ -128,3 +133,4 @@ volumes:
   data:          # app.db, embeddings_cache.db, and all cache directories
   caddy-data:    # Caddy TLS certificates (persisted across restarts)
   caddy-config:  # Caddy runtime config
+  caddy-logs:    # Caddy access logs (JSON, real client IPs)

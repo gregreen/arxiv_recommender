@@ -193,6 +193,22 @@ class TestImportAds:
         r = client.post("/api/users/me/papers/import/ads", json={"text": ads_text})
         assert r.status_code == 422
 
+    def test_bare_ids_imported(self, client, web_db):
+        """IDs without the arXiv: prefix should also be accepted."""
+        ads_text = "2309.00001\n2309.00002"
+        r = client.post("/api/users/me/papers/import/ads", json={"text": ads_text})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["imported"] == 2
+        assert data["invalid"] == 0
+
+    def test_mixed_prefix_and_bare(self, client, web_db):
+        """A mix of arXiv:-prefixed, ARXIV:-prefixed, and bare IDs should all be accepted."""
+        ads_text = "arXiv:2309.00001\nARXIV:2309.00002\n2309.00003"
+        r = client.post("/api/users/me/papers/import/ads", json={"text": ads_text})
+        assert r.status_code == 200
+        assert r.json()["imported"] == 3
+
     def test_partial_import_due_to_rate_limit(self, client, web_db):
         """When the daily Tier A quota is already exhausted, all IDs in the ADS
         import should be counted as rate_limited rather than imported."""

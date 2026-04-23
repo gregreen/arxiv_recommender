@@ -8,6 +8,27 @@
 # REST API under /api/ and the React SPA for all other routes).
 
 {env.DOMAIN} {
+    log {
+        # Structured JSON access log — captures real client IPs, status codes,
+        # response times, and User-Agent for every request.
+        output file /var/log/caddy/access.log {
+            roll_size 100MiB
+            roll_keep 7
+        }
+        format json
+    }
+
+    # Global per-IP rate limit: 800 requests/minute (~13/sec average).
+    # Exceeding this returns HTTP 429. The limit is high enough to never
+    # affect legitimate users but cuts off automated scanners immediately.
+    rate_limit {
+        zone global_per_ip {
+            key    {remote_host}
+            events 800
+            window 1m
+        }
+    }
+
     header {
         X-Frame-Options "SAMEORIGIN"
         X-Content-Type-Options "nosniff"

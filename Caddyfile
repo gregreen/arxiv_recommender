@@ -1,7 +1,9 @@
 # Caddyfile — production HTTPS reverse proxy for arXiv Recommender
 #
 # Prerequisites:
-#   1. Install Caddy: https://caddyserver.com/docs/install
+#   1. Install xcaddy (builds custom Caddy with plugins):
+#        go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+#      deploy.sh will then compile and install Caddy automatically.
 #   2. Point your domain's A record at this server's IP.
 #   3. deploy.sh installs this file to /etc/caddy/Caddyfile after substituting
 #      <DOMAIN> and <project_dir> with the values set in deploy.sh.
@@ -11,6 +13,31 @@
 # All other requests serve the React SPA from web/frontend/dist/.
 
 <DOMAIN> {
+    log {
+        # Structured JSON access log — captures real client IPs, status codes,
+        # response times, and User-Agent for every request.
+        output file /var/log/caddy/access.log {
+            roll_size 100MiB
+            roll_keep 7
+        }
+        format json
+    }
+
+    # Block requests containing null bytes in the URI (path traversal probes).
+    @null_byte path_regexp null_byte %00
+    respond @null_byte 400
+
+    # Global per-IP rate limit: 800 requests/minute (~13/sec average).
+    # Exceeding this returns HTTP 429. The limit is high enough to never
+    # affect legitimate users but cuts off automated scanners immediately.
+    rate_limit {
+        zone global_per_ip {
+            key    {remote_host}
+            events 800
+            window 1m
+        }
+    }
+
     header {
         X-Frame-Options "SAMEORIGIN"
         X-Content-Type-Options "nosniff"
