@@ -122,7 +122,7 @@ services:
       ofelia.enabled: "true"
       # Run daily at 05:00 NYC time (Ofelia uses the TZ from the scheduler container)
       ofelia.job-exec.backup.schedule: "0 0 5 * * *"
-      ofelia.job-exec.backup.command: "/bin/sh /app/scripts/backup.sh"
+      ofelia.job-exec.backup.command: "/bin/bash /app/scripts/backup.sh"
 
 volumes:
   # 'data' is a Docker-managed named volume. Docker stores it at:
