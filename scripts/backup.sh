@@ -235,6 +235,6 @@ echo "==> Starting restic backup ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
 echo "    Repository: $RESTIC_REPOSITORY"
 echo "    Paths: ${BACKUP_PATHS[*]}"
 
-restic backup --host arxiv-recommender "${BACKUP_PATHS[@]}"
+restic backup --host arxiv-recommender --no-lock "${BACKUP_PATHS[@]}"
 
 echo "==> Backup complete ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
