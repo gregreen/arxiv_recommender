@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily arXiv Recommender Backup Timer
+
+[Timer]
+OnCalendar=*-*-* 05:00:00
+Timezone=America/New_York
+Persistent=true
+Unit=arxiv-backup.service
+
+[Install]
+WantedBy=timers.target

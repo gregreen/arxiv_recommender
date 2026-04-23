@@ -1,0 +1,7 @@
+FROM alpine:3.21
+
+# restic — encrypted, deduplicated backups to cloud object storage
+# sqlite  — provides the sqlite3 CLI, used for safe online database snapshots
+RUN apk add --no-cache restic sqlite bash
+
+ENTRYPOINT ["/bin/sh"]

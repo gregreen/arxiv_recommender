@@ -30,7 +30,7 @@ for var in USER PROJECT_DIR DOMAIN; do
     fi
 done
 
-for cmd in python3 node npm xcaddy systemctl; do
+for cmd in python3 node npm xcaddy systemctl sqlite3 restic; do
     if ! command -v "$cmd" &>/dev/null; then
         echo "ERROR: '$cmd' not found on PATH. Please install it and retry." >&2
         echo "       xcaddy: go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest" >&2
@@ -136,7 +136,9 @@ for unit_file in \
     arxiv-daily-ingest.service \
     arxiv-daily-ingest.timer \
     arxiv-cleanup-embeddings.service \
-    arxiv-cleanup-embeddings.timer
+    arxiv-cleanup-embeddings.timer \
+    arxiv-backup.service \
+    arxiv-backup.timer
 do
     sed \
         -e "s|<user>|$USER|g" \
@@ -183,7 +185,8 @@ systemctl enable \
     arxiv-embed-daemon.service \
     arxiv-meta-daemon.service \
     arxiv-daily-ingest.timer \
-    arxiv-cleanup-embeddings.timer
+    arxiv-cleanup-embeddings.timer \
+    arxiv-backup.timer
 systemctl restart \
     arxiv-recommender.service \
     arxiv-embed-daemon.service \
@@ -221,17 +224,29 @@ cat <<EOF
 2. Back up $PROJECT_DIR/.env
    Losing SECRET_KEY will invalidate all user sessions.
 
-3. Run the first ingest manually (optional, won't wait until tonight):
+3. Set up restic backups (if not already done):
+   See scripts/backup.sh for full instructions.
+   Add to $PROJECT_DIR/.env:
+     RESTIC_PASSWORD=<strong-passphrase>        # never lose this
+     RESTIC_REPOSITORY=<repo-url>               # e.g. b2:my-bucket:/arxiv-recommender
+     # + backend credentials (B2_ACCOUNT_ID/B2_ACCOUNT_KEY or
+     #   AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY depending on provider)
+   Then initialise the repository once:
+     RESTIC_PASSWORD=... RESTIC_REPOSITORY=... restic init
+   Confirm the timer is running:
+     systemctl list-timers arxiv-backup.timer
+
+5. Run the first ingest manually (optional, won't wait until tonight):
      sudo -u $USER $PROJECT_DIR/.venv/bin/python3 $PROJECT_DIR/scripts/cron_daily.py
 
-4. Register via the web UI at https://$DOMAIN, then promote to admin:
+6. Register via the web UI at https://$DOMAIN, then promote to admin:
      sudo -u $USER $PROJECT_DIR/.venv/bin/python3 $PROJECT_DIR/scripts/activate_user.py <email> --make-admin
 
-5. Check service status:
+7. Check service status:
      systemctl status arxiv-recommender arxiv-embed-daemon arxiv-meta-daemon
      systemctl list-timers arxiv-daily-ingest.timer
 
-6. Check logs:
+8. Check logs:
      journalctl -u arxiv-recommender -n 50
      journalctl -u arxiv-embed-daemon -n 50
 
