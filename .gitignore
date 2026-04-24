@@ -6,6 +6,7 @@
 *.db-*
 *.svg
 *.png
+.env
 arxiv_source_cache/
 arxiv_metadata_cache/
 arxiv_embedding_cache/
