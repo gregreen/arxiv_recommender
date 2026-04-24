@@ -247,14 +247,14 @@ class TestMe:
 class TestLoginAccountRateLimit:
     """Tests for the per-account 20/hour rate limit on POST /api/auth/login.
 
-    The limiter's default key_func (IP-based, 5/minute) is replaced with a
+    The limiter's default key_func (IP-based, 12/minute) is replaced with a
     rotating-IP function so it never triggers, allowing us to accumulate 21
     attempts against the per-account limit and verify the 21st is rejected.
     """
 
     @pytest.fixture(autouse=True)
     def _setup(self):
-        """Reset limiter storage and rotate the per-IP key so the 5/minute
+        """Reset limiter storage and rotate the per-IP key so the 12/minute
         IP limit never triggers while we accumulate account-based attempts."""
         _auth_limiter._storage.reset()
 

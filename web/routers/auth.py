@@ -132,7 +132,7 @@ def register(request: Request, body: RegisterRequest, db: sqlite3.Connection = D
 
 
 @router.post("/login")
-@limiter.limit("5/minute") # IP-based limit
+@limiter.limit("12/minute") # IP-based limit
 def login(request: Request, body: LoginRequest, response: Response, db: sqlite3.Connection = Depends(get_db)):
     email_key = body.email.strip().lower()
 
