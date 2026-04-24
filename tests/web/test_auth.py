@@ -11,10 +11,12 @@ Tests for /api/auth/* endpoints:
 
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
+import itertools
 
 import pytest
 
 from web.auth import hash_password
+from web.routers.auth import limiter as _auth_limiter
 
 _EMAIL = "user@example.com"
 _PASSWORD = "correctpassword"
@@ -237,3 +239,83 @@ class TestMe:
         assert data["email"] == "test@example.com"
         assert data["is_admin"] is False
         assert data["email_verified"] is True
+
+
+# ---------------------------------------------------------------------------
+# POST /api/auth/login  — per-account rate limit
+# ---------------------------------------------------------------------------
+
+class TestLoginAccountRateLimit:
+    """Tests for the per-account 20/hour rate limit on POST /api/auth/login.
+
+    The limiter's default key_func (IP-based, 5/minute) is replaced with a
+    rotating-IP function so it never triggers, allowing us to accumulate 21
+    attempts against the per-account limit and verify the 21st is rejected.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _setup(self):
+        """Reset limiter storage and rotate the per-IP key so the 5/minute
+        IP limit never triggers while we accumulate account-based attempts."""
+        _auth_limiter._storage.reset()
+
+        # The per-IP limit is baked into a Limit object whose key_func we can
+        # patch directly (it is a plain mutable attribute, not a descriptor).
+        login_limits = _auth_limiter._route_limits.get("web.routers.auth.login", [])
+        ip_limit = next(
+            (lim for lim in login_limits if "1 minute" in str(lim.limit)), None
+        )
+        original_key_func = ip_limit.key_func if ip_limit else None
+        counter = itertools.count(1)
+
+        def rotating_ip(request):
+            n = next(counter)
+            return f"10.0.{(n >> 8) & 0xFF}.{n & 0xFF}"
+
+        if ip_limit:
+            ip_limit.key_func = rotating_ip
+        yield
+        if ip_limit and original_key_func is not None:
+            ip_limit.key_func = original_key_func
+
+    def test_account_rate_limit_triggers_after_20_attempts(self, raw_client, web_db):
+        """The 21st login attempt for the same email within an hour should
+        return 429 regardless of the source IP."""
+        email = "rl_account@example.com"
+        _insert_user(web_db, email=email)
+
+        with patch("web.routers.auth.EMAIL_VERIFICATION_ENABLED", False):
+            for _ in range(20):
+                r = raw_client.post(
+                    "/api/auth/login", json={"email": email, "password": "wrong"}
+                )
+                assert r.status_code == 401, "Requests 1-20 should reach auth logic"
+
+            r = raw_client.post(
+                "/api/auth/login", json={"email": email, "password": "wrong"}
+            )
+        assert r.status_code == 429
+
+    def test_account_rate_limit_is_per_email(self, raw_client, web_db):
+        """Exhausting the rate limit for one email address does not affect
+        requests for a different email address."""
+        email_a = "rl_account_a@example.com"
+        email_b = "rl_account_b@example.com"
+        _insert_user(web_db, email=email_a)
+        _insert_user(web_db, email=email_b)
+
+        with patch("web.routers.auth.EMAIL_VERIFICATION_ENABLED", False):
+            for _ in range(20):
+                raw_client.post(
+                    "/api/auth/login", json={"email": email_a, "password": "wrong"}
+                )
+
+            r_a = raw_client.post(
+                "/api/auth/login", json={"email": email_a, "password": "wrong"}
+            )
+            assert r_a.status_code == 429, "email_a should be rate limited"
+
+            r_b = raw_client.post(
+                "/api/auth/login", json={"email": email_b, "password": "wrong"}
+            )
+        assert r_b.status_code == 401, "email_b should not be rate limited"

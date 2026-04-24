@@ -18,6 +18,8 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr
+import json
+
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -30,6 +32,29 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 limiter = Limiter(key_func=get_remote_address)
+
+
+def _login_account_key(request: Request) -> str:
+    """Rate-limit key based on the submitted email address (lowercased).
+
+    Falls back to remote IP if the body cannot be parsed, so malformed
+    requests are still bucketed rather than bypassing the limit.
+
+    Must be synchronous: slowapi's __evaluate_limits calls key_func without
+    await. The body is already cached in request._body by the time slowapi
+    runs because FastAPI resolves the LoginRequest dependency (which reads the
+    body) before invoking the decorated endpoint wrapper.
+    """
+    try:
+        body = getattr(request, "_body", None)
+        if body:
+            email = json.loads(body).get("email", "").strip().lower()
+            if email:
+                return f"login:account:{email}"
+    except Exception:
+        pass
+    return get_remote_address(request)
+
 
 # Maximum cooldown between resend attempts (capped at 24 hours)
 _MAX_RESEND_COOLDOWN_MINUTES = 1440
@@ -125,7 +150,8 @@ def register(request: Request, body: RegisterRequest, db: sqlite3.Connection = D
 
 
 @router.post("/login")
-@limiter.limit("5/minute")
+@limiter.limit("20/hour", key_func=_login_account_key) # Account-based limit
+@limiter.limit("5/minute") # IP-based limit 
 def login(request: Request, body: LoginRequest, response: Response, db: sqlite3.Connection = Depends(get_db)):
     row = db.execute(
         "SELECT id, password_hash, is_active, email_verified FROM users WHERE email = ?",
