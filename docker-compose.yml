@@ -105,14 +105,14 @@ services:
 
   # ── Backup (restic → cloud object storage) ──────────────────────────────────
   # Requires RESTIC_PASSWORD, RESTIC_REPOSITORY, and backend credentials
-  # to be set in .env. See scripts/backup.sh for full setup instructions.
+  # to be set in .env.backup. See scripts/backup.sh for full setup instructions.
   backup:
     build:
       context: .
       dockerfile: deploy/Dockerfile.backup
     restart: unless-stopped
     entrypoint: ["tail", "-f", "/dev/null"]
-    env_file: .env
+    env_file: .env.backup
     environment:
       DATA_DIR: /app/data
     volumes:
