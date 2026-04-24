@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr
-import json
+from limits import parse as _parse_limit
 
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -33,27 +33,9 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 limiter = Limiter(key_func=get_remote_address)
 
-
-def _login_account_key(request: Request) -> str:
-    """Rate-limit key based on the submitted email address (lowercased).
-
-    Falls back to remote IP if the body cannot be parsed, so malformed
-    requests are still bucketed rather than bypassing the limit.
-
-    Must be synchronous: slowapi's __evaluate_limits calls key_func without
-    await. The body is already cached in request._body by the time slowapi
-    runs because FastAPI resolves the LoginRequest dependency (which reads the
-    body) before invoking the decorated endpoint wrapper.
-    """
-    try:
-        body = getattr(request, "_body", None)
-        if body:
-            email = json.loads(body).get("email", "").strip().lower()
-            if email:
-                return f"login:account:{email}"
-    except Exception:
-        pass
-    return get_remote_address(request)
+# Per-account brute-force limit: counted only on failed credential checks.
+# Uses the limits strategy API directly so successful logins never consume it.
+_ACCOUNT_FAIL_LIMIT = _parse_limit("20/hour")
 
 
 # Maximum cooldown between resend attempts (capped at 24 hours)
@@ -150,15 +132,24 @@ def register(request: Request, body: RegisterRequest, db: sqlite3.Connection = D
 
 
 @router.post("/login")
-@limiter.limit("20/hour", key_func=_login_account_key) # Account-based limit
-@limiter.limit("5/minute") # IP-based limit 
+@limiter.limit("5/minute") # IP-based limit
 def login(request: Request, body: LoginRequest, response: Response, db: sqlite3.Connection = Depends(get_db)):
+    email_key = body.email.strip().lower()
+
+    if not limiter._limiter.test(_ACCOUNT_FAIL_LIMIT, email_key):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed login attempts. Please try again later.",
+        )
+
     row = db.execute(
         "SELECT id, password_hash, is_active, email_verified FROM users WHERE email = ?",
         (body.email,),
     ).fetchone()
 
     if row is None or not verify_password(body.password, row["password_hash"]):
+        # Update rate limiter on failed login attempt
+        limiter._limiter.hit(_ACCOUNT_FAIL_LIMIT, email_key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password.",

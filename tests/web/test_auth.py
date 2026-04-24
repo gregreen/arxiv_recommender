@@ -11,7 +11,6 @@ Tests for /api/auth/* endpoints:
 
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
-import itertools
 
 import pytest
 
@@ -259,17 +258,16 @@ class TestLoginAccountRateLimit:
         IP limit never triggers while we accumulate account-based attempts."""
         _auth_limiter._storage.reset()
 
-        # The per-IP limit is baked into a Limit object whose key_func we can
-        # patch directly (it is a plain mutable attribute, not a descriptor).
         login_limits = _auth_limiter._route_limits.get("web.routers.auth.login", [])
         ip_limit = next(
             (lim for lim in login_limits if "1 minute" in str(lim.limit)), None
         )
         original_key_func = ip_limit.key_func if ip_limit else None
-        counter = itertools.count(1)
+        counter = [0]
 
         def rotating_ip(request):
-            n = next(counter)
+            counter[0] += 1
+            n = counter[0]
             return f"10.0.{(n >> 8) & 0xFF}.{n & 0xFF}"
 
         if ip_limit:
@@ -277,6 +275,7 @@ class TestLoginAccountRateLimit:
         yield
         if ip_limit and original_key_func is not None:
             ip_limit.key_func = original_key_func
+        _auth_limiter._storage.reset()
 
     def test_account_rate_limit_triggers_after_20_attempts(self, raw_client, web_db):
         """The 21st login attempt for the same email within an hour should
