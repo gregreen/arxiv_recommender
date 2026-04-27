@@ -203,18 +203,40 @@ def recommendations_are_stale(
 
     Stale if:
     - No recommendations exist for this user, OR
-    - The stored model_hash differs from the current hash.
+    - The stored model_hash differs from the current hash, OR
+    - Any paper within the month window has an embedded_at newer than generated_at.
+      This covers both anchor shifts (new papers with later published_date) and
+      same-day second-batch cron runs (published_date unchanged, but new rows
+      inserted with a later embedded_at).
     """
     row = con.execute(
-        "SELECT model_hash FROM recommendations WHERE user_id = ? LIMIT 1",
+        "SELECT model_hash, MAX(generated_at) FROM recommendations WHERE user_id = ?",
         (user_id,),
     ).fetchone()
 
-    if row is None:
+    if row is None or row[0] is None:
         return True  # no cached recommendations
 
-    cached_hash = row[0]
-    return cached_hash != model_hash
+    cached_hash, generated_at = row[0], row[1]
+    if cached_hash != model_hash:
+        return True
+
+    # Check whether any paper within the month window was ingested after the cache
+    # was generated.  Scoping to the month window avoids false positives from
+    # re-ingestion of very old papers that fall outside all active windows.
+    # Both embedded_at (SQLite default: "YYYY-MM-DD HH:MM:SS") and generated_at
+    # (Python ISO: "YYYY-MM-DDTHH:MM:SSZ") are normalized via datetime() so that
+    # the string comparison is format-independent.
+    month_cutoff = _window_cutoff("month", con)
+    has_new = con.execute(
+        "SELECT 1 FROM papers "
+        "WHERE published_date >= ? AND datetime(embedded_at) > datetime(?) LIMIT 1",
+        (month_cutoff, generated_at),
+    ).fetchone()
+    if has_new:
+        return True
+
+    return False
 
 
 def get_or_train_model(

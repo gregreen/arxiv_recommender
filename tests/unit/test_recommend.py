@@ -179,6 +179,46 @@ class TestRecommendationsAreStale:
         app_db_con.commit()
         assert recommendations_are_stale(app_db_con, _USER_ID, "newhash") is True
 
+    def test_new_papers_make_cache_stale(self, app_db_con):
+        """Cache is stale when a new paper is ingested after generated_at,
+        even if the model hash matches."""
+        _insert_user(app_db_con)
+        _insert_paper(app_db_con, "2309.06676", date.today().isoformat())
+        # Use an explicit past timestamp so the subsequently inserted paper
+        # has embedded_at > generated_at.
+        app_db_con.execute(
+            "INSERT INTO recommendations "
+            "(user_id, arxiv_id, time_window, score, rank, model_hash, generated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, datetime('now', '-5 minutes'))",
+            (_USER_ID, "2309.06676", "month", -1.0, 1, "myhash"),
+        )
+        app_db_con.commit()
+
+        # New paper arrives after generated_at (embedded_at = now > generated_at).
+        _insert_paper(app_db_con, "2309.99998", date.today().isoformat())
+
+        assert recommendations_are_stale(app_db_con, _USER_ID, "myhash") is True
+
+    def test_same_day_new_papers_make_cache_stale(self, app_db_con):
+        """Cache is stale when same-day papers are ingested after generated_at
+        (second batch of daily mailing), even though MAX(published_date) is unchanged."""
+        _insert_user(app_db_con)
+        _insert_paper(app_db_con, "2309.06676", date.today().isoformat())
+        # Use an explicit past timestamp so any subsequent insert has embedded_at > generated_at.
+        app_db_con.execute(
+            "INSERT INTO recommendations "
+            "(user_id, arxiv_id, time_window, score, rank, model_hash, generated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, datetime('now', '-5 minutes'))",
+            (_USER_ID, "2309.06676", "month", -1.0, 1, "myhash"),
+        )
+        app_db_con.commit()
+
+        # Insert a paper with the same published_date — anchor does not advance,
+        # but embedded_at is NOW, which is after generated_at (-5 minutes ago).
+        _insert_paper(app_db_con, "2309.99999", date.today().isoformat())
+
+        assert recommendations_are_stale(app_db_con, _USER_ID, "myhash") is True
+
 
 # ---------------------------------------------------------------------------
 # get_or_train_model
@@ -529,3 +569,66 @@ class TestGetGroupRecommendations:
         assert corpus_in_results, "Expected at least one corpus paper in results"
         for aid in corpus_in_results:
             assert result_map[aid]["liked"] is None
+
+    def test_stale_cache_not_served_when_anchor_advances(self, app_db_con, data_dir):
+        """After new papers arrive (advancing MAX(published_date)), a subsequent call to
+        get_group_recommendations must refresh the cache and return the new papers,
+        not serve the old cached results."""
+        ingest._init_embedding_db()
+        rng = np.random.default_rng(seed=55)
+        d = RECOMMENDATION_EMBEDDING_DIM
+        center_pos = np.zeros(d, dtype=np.float32); center_pos[0] = 3.0
+        center_neg = np.zeros(d, dtype=np.float32); center_neg[0] = -3.0
+
+        today = date.today()
+        corpus = _build_corpus(app_db_con, data_dir, n=70)
+        liked_ids = _setup_trainable_user(app_db_con, data_dir, 1, "u1@test.com", corpus)
+        group_id = _insert_group(app_db_con, 1)
+
+        # First call — cache is populated with papers published today.
+        results1, _, _ = get_group_recommendations(app_db_con, group_id, "day", 1)
+        ids1 = {r["arxiv_id"] for r in results1}
+        assert len(ids1) > 0, "Expected initial recommendations"
+
+        # Wind back generated_at so the new paper's embedded_at is unambiguously
+        # newer, regardless of test execution speed (same technique as unit tests).
+        app_db_con.execute(
+            "UPDATE recommendations SET generated_at = datetime('now', '-5 minutes')"
+        )
+        app_db_con.commit()
+
+        # Insert a new paper with a published_date 2 days in the future (newer anchor).
+        new_id = "new.paper.future"
+        future_date = (today + timedelta(days=2)).isoformat()
+        app_db_con.execute(
+            "INSERT OR IGNORE INTO papers (arxiv_id, title, authors, published_date) "
+            "VALUES (?, ?, '[]', ?)",
+            (new_id, "New future paper", future_date),
+        )
+        app_db_con.commit()
+        # Give it a positive-cluster embedding so it scores high.
+        vec = (center_pos + rng.normal(scale=0.05, size=d)).astype(np.float32)
+        with sqlite3.connect(EMBEDDING_CACHE_DB()) as emb:
+            emb.execute(
+                "INSERT OR REPLACE INTO recommendation_embeddings VALUES (?, ?)",
+                (new_id, vec.tobytes()),
+            )
+
+        # Second call — cache must be invalidated and rebuilt.
+        results2, _, _ = get_group_recommendations(app_db_con, group_id, "day", 1)
+        ids2 = {r["arxiv_id"] for r in results2}
+
+        # The new paper should appear in the refreshed "day" window.
+        assert new_id in ids2, (
+            f"Expected new paper {new_id!r} in refreshed 'day' results, got: {ids2}"
+        )
+
+        # Papers published only on 'today' must now be outside the new "day" window
+        # (new anchor is today+2, so "day" cutoff is today+1 — today's papers are excluded).
+        today_only_ids = {aid for aid in ids1
+                         if aid not in liked_ids and aid not in corpus}
+        for aid in today_only_ids:
+            assert aid not in ids2, (
+                f"Paper {aid!r} published today should no longer appear in 'day' "
+                f"after anchor advanced to {future_date}"
+            )
