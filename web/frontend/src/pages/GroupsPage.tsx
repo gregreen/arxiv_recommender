@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useGroups } from "../contexts/GroupsContext";
 import { createGroup } from "../api/groups";
+import AppNav from "../components/AppNav";
 
 export default function GroupsPage() {
   const navigate = useNavigate();
@@ -28,12 +29,9 @@ export default function GroupsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="flex items-center gap-4 px-4 py-2 border-b border-blue-200 shrink-0" style={{ background: "linear-gradient(42deg, #ebf5ff, #91caff)" }}>
-        <Link to="/" className="font-bold text-blue-700 text-lg">arXiv Recommender</Link>
-        <Link to="/" className="text-sm text-gray-600 hover:text-gray-900">← Recommendations</Link>
-      </nav>
+      <AppNav />
 
-      <div className="max-w-lg mx-auto px-4 py-10">
+      <div className="max-w-lg mx-auto px-4 py-6">
         <h1 className="text-2xl font-bold text-gray-900 mb-3">Groups</h1>
         <p className="text-sm text-gray-500 mb-6">
           Groups allow multiple users to see their aggregated scores, facilitating research-group or departmental arXiv discussions. After you create a group, you can invite other users to join by sending them invite links.

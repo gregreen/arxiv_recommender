@@ -1,7 +1,4 @@
-import { Link, useNavigate } from "react-router-dom";
-import { logout } from "../api/auth";
-import { useAuth } from "../AuthContext";
-import NavMenu from "../components/NavMenu";
+import AppNav from "../components/AppNav";
 import MathText from "../components/MathText";
 
 // ---------------------------------------------------------------------------
@@ -83,37 +80,9 @@ function SummaryPanel() {
 // ---------------------------------------------------------------------------
 
 export default function AboutPage() {
-  const { user, clearUser } = useAuth();
-  const navigate = useNavigate();
-
-  async function handleLogout() {
-    await logout().catch(() => {});
-    clearUser();
-    navigate("/login");
-  }
-
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
-      {/* Navbar */}
-      <nav
-        className="flex items-center gap-4 px-4 py-2 border-b border-blue-200 shrink-0"
-        style={{ background: "linear-gradient(42deg, #ebf5ff, #91caff)" }}
-      >
-        <Link to="/" className="font-bold text-blue-700 text-lg">arXiv Recommender</Link>
-
-        {user ? (
-          <>
-            <Link to="/library" className="text-sm text-gray-600 hover:text-gray-900">Library</Link>
-            <span className="text-sm text-gray-600 font-medium">About</span>
-            <NavMenu email={user.email} onLogout={handleLogout} />
-          </>
-        ) : (
-          <>
-            <span className="text-sm text-gray-600 font-medium">About</span>
-            <Link to="/login" className="text-sm text-gray-600 hover:text-gray-900 ml-auto">Sign in / register</Link>
-          </>
-        )}
-      </nav>
+      <AppNav />
 
       {/* Body */}
       <main className="max-w-7xl mx-auto w-full px-6 py-8 space-y-6 text-gray-700">

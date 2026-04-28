@@ -1,15 +1,11 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { logout } from "../api/auth";
-import { useAuth } from "../AuthContext";
 import { getMyPapers } from "../api/user";
 import { useGroups } from "../contexts/GroupsContext";
-import NavMenu from "../components/NavMenu";
+import AppNav from "../components/AppNav";
 import RecommendationList from "../components/RecommendationList";
 import PaperDetail from "../components/PaperDetail";
 
 export default function MainLayout() {
-  const { user, clearUser } = useAuth();
   const { groups } = useGroups();
   const [selectedArxivId, setSelectedArxivId] = useState<string | null>(null);
   const [selectedLiked, setSelectedLiked] = useState<number | null>(null);
@@ -35,11 +31,6 @@ export default function MainLayout() {
       setActiveGroupId(null);
     }
   }, [groups, activeGroupId]);
-
-  async function handleLogout() {
-    await logout().catch(() => {});
-    clearUser();
-  }
 
   // Push a history entry when opening the detail panel so the browser back
   // gesture closes it instead of leaving the page.
@@ -68,18 +59,7 @@ export default function MainLayout() {
 
   return (
     <div className="flex flex-col h-screen overflow-x-hidden bg-gray-50">
-      {/* Navbar */}
-      <nav className="flex items-center gap-4 px-4 py-2 border-b border-blue-200 shrink-0" style={{background: "linear-gradient(42deg, #ebf5ff, #91caff)"}}>
-        <span className="font-bold text-blue-700 text-lg">arXiv Recommender</span>
-        <Link
-          to="/library"
-          className="text-sm text-gray-600 hover:text-gray-900"
-        >
-          Library
-        </Link>
-        <Link to="/about" className="hidden md:inline text-sm text-gray-600 hover:text-gray-900">About</Link>
-        <NavMenu email={user?.email} onLogout={handleLogout} />
-      </nav>
+      <AppNav />
 
       {/* Two-pane body */}
       <div className="relative flex flex-1 overflow-hidden">

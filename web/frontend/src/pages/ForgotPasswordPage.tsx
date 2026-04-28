@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { requestPasswordReset } from "../api/auth";
+import { requestPasswordReset, getEmailEnabled } from "../api/auth";
 import { ApiError } from "../api/client";
 
 export default function ForgotPasswordPage() {
@@ -8,8 +8,15 @@ export default function ForgotPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [emailEnabled, setEmailEnabled] = useState<boolean | null>(null);
 
-  async function handleSubmit(e: FormEvent) {
+  useEffect(() => {
+    getEmailEnabled()
+      .then(r => setEmailEnabled(r.email_enabled))
+      .catch(() => setEmailEnabled(true)); // assume enabled on error; backend will handle it
+  }, []);
+
+  async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setLoading(true);
@@ -39,7 +46,12 @@ export default function ForgotPasswordPage() {
       <div className="flex-1 flex items-center justify-center">
         <div className="bg-white shadow rounded-lg p-8 w-full max-w-sm">
           <h1 className="text-2xl font-bold mb-6 text-gray-800">Forgot Password</h1>
-          {submitted ? (
+          {emailEnabled === false ? (
+            <div className="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded p-3">
+              Password reset via email is not available on this deployment. Please contact the
+              administrator to have your password reset.
+            </div>
+          ) : submitted ? (
             <div className="text-sm text-green-800 bg-green-50 border border-green-200 rounded p-3">
               If that email address is registered, a password reset link has been sent. Please check your inbox.
             </div>
@@ -64,7 +76,7 @@ export default function ForgotPasswordPage() {
                 </div>
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || emailEnabled === null}
                   className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium rounded px-4 py-2 text-sm transition-colors"
                 >
                   {loading ? "Sending…" : "Send Reset Link"}

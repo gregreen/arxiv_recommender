@@ -1,5 +1,6 @@
 """
-Auth endpoints: register, login, logout, email verification, password reset.
+Auth endpoints: register, login, logout, email verification, password reset,
+change password.
 
 POST /api/auth/register              — create account
 POST /api/auth/login                 — verify credentials and set JWT cookie
@@ -7,8 +8,10 @@ POST /api/auth/logout                — clear JWT cookie
 GET  /api/auth/verify-email          — consume a verification token
 POST /api/auth/resend-verification   — resend the verification email (with exponential cooldown)
 GET  /api/auth/me                    — return the current user's profile
+GET  /api/auth/email-enabled         — return whether email sending is configured
 POST /api/auth/forgot-password       — send a password-reset email
 POST /api/auth/reset-password        — consume a reset token and set a new password
+POST /api/auth/change-password       — change password for the authenticated user
 """
 
 import logging
@@ -36,6 +39,9 @@ limiter = Limiter(key_func=get_remote_address)
 # Per-account brute-force limit: counted only on failed credential checks.
 # Uses the limits strategy API directly so successful logins never consume it.
 _ACCOUNT_FAIL_LIMIT = _parse_limit("20/hour")
+
+# Per-user rate limit for change-password (applied to every attempt).
+_CHANGE_PASSWORD_USER_LIMIT = _parse_limit("3/hour")
 
 
 # Maximum cooldown between resend attempts (capped at 24 hours)
@@ -83,6 +89,11 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 
 @router.post("/register", status_code=status.HTTP_202_ACCEPTED)
@@ -390,4 +401,51 @@ def reset_password(
     )
     db.commit()
     return {"message": "Password reset successfully. You can now sign in with your new password."}
+
+
+@router.get("/email-enabled", status_code=status.HTTP_200_OK)
+def email_enabled():
+    """Return whether email sending is configured on this deployment."""
+    return {"email_enabled": EMAIL_VERIFICATION_ENABLED}
+
+
+@router.post("/change-password", status_code=status.HTTP_200_OK)
+@limiter.limit("6/hour")
+def change_password(
+    request: Request,
+    body: ChangePasswordRequest,
+    db: sqlite3.Connection = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    # Per-user rate limit (3/hour) — applied to every attempt, not just failures.
+    user_key = f"change_password:{user['id']}"
+    if not limiter._limiter.test(_CHANGE_PASSWORD_USER_LIMIT, user_key):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many password change attempts. Please try again later.",
+        )
+    limiter._limiter.hit(_CHANGE_PASSWORD_USER_LIMIT, user_key)
+
+    if len(body.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="New password must be at least 8 characters.",
+        )
+
+    row = db.execute(
+        "SELECT password_hash FROM users WHERE id = ?", (user["id"],)
+    ).fetchone()
+    if row is None or not verify_password(body.current_password, row["password_hash"]):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect.",
+        )
+
+    db.execute(
+        "UPDATE users SET password_hash = ? WHERE id = ?",
+        (hash_password(body.new_password), user["id"]),
+    )
+    db.commit()
+    log.info("change_password: user %d changed their password.", user["id"])
+    return {"message": "Password changed successfully."}
 

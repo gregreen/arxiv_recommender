@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../AuthContext";
 import { useGroups } from "../contexts/GroupsContext";
+import AppNav from "../components/AppNav";
 import {
   getGroup,
   createInvite,
@@ -207,13 +208,13 @@ export default function GroupManagePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="flex items-center gap-4 px-4 py-2 border-b border-blue-200 shrink-0" style={{ background: "linear-gradient(42deg, #ebf5ff, #91caff)" }}>
-        <Link to="/" className="font-bold text-blue-700 text-lg">arXiv Recommender</Link>
-        <Link to="/groups" className="text-sm text-gray-600 hover:text-gray-900">← Groups</Link>
-      </nav>
+      <AppNav />
 
-      <div className="max-w-lg mx-auto px-4 py-10 space-y-8">
-        <h1 className="text-2xl font-bold text-gray-900">{group.name}</h1>
+      <div className="max-w-lg mx-auto px-4 py-6 space-y-8">
+        <div>
+          <Link to="/groups" className="inline-block mb-4 text-sm text-blue-600 hover:text-blue-800 transition-colors">← Groups</Link>
+          <h1 className="text-2xl font-bold text-gray-900">{group.name}</h1>
+        </div>
 
         {actionError && (
           <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-3">

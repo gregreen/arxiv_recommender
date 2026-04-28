@@ -42,3 +42,14 @@ export async function resetPassword(token: string, password: string) {
     body: JSON.stringify({ token, password }),
   });
 }
+
+export async function getEmailEnabled() {
+  return apiFetch<{ email_enabled: boolean }>("/api/auth/email-enabled");
+}
+
+export async function changePassword(currentPassword: string, newPassword: string) {
+  return apiFetch<{ message: string }>("/api/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+}

@@ -1,17 +1,13 @@
 import { useState, useEffect, type FormEvent } from "react";
-import { Link } from "react-router-dom";
-import { logout } from "../api/auth";
-import { useAuth } from "../AuthContext";
 import { getMyPapers, addPaper, updatePaper, deletePaper, importAds } from "../api/user";
 import type { UserPaper } from "../api/types";
 import type { Paper } from "../api/types";
 import { formatTimestamp } from "../utils";
 import MathText from "../components/MathText";
-import NavMenu from "../components/NavMenu";
+import AppNav from "../components/AppNav";
 import PaperDetail from "../components/PaperDetail";
 
 export default function LibraryPage() {
-  const { user, clearUser } = useAuth();
   const [papers, setPapers] = useState<UserPaper[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,11 +67,6 @@ export default function LibraryPage() {
   const [adsHasWarning, setAdsHasWarning] = useState(false);
   const [adsError, setAdsError] = useState<string | null>(null);
   const [adsLoading, setAdsLoading] = useState(false);
-
-  async function handleLogout() {
-    await logout().catch(() => {});
-    clearUser();
-  }
 
   useEffect(() => {
     getMyPapers()
@@ -155,13 +146,7 @@ export default function LibraryPage() {
 
   return (
     <div className="flex flex-col h-screen overflow-x-hidden bg-gray-50">
-      {/* Navbar */}
-      <nav className="flex items-center gap-4 px-4 py-2 border-b border-blue-200 shrink-0" style={{background: "linear-gradient(42deg, #ebf5ff, #91caff)"}}>
-        <Link to="/" className="font-bold text-blue-700 text-lg">arXiv Recommender</Link>
-        <span className="text-sm text-gray-600 font-medium">Library</span>
-        <Link to="/about" className="hidden md:inline text-sm text-gray-600 hover:text-gray-900">About</Link>
-        <NavMenu email={user?.email} onLogout={handleLogout} />
-      </nav>
+      <AppNav />
 
       <div className="relative flex flex-1 overflow-hidden">
         {/* Left: library management */}
