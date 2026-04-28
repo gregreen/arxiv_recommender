@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Activate (or deactivate) a user account in app.db, or list pending registrations,
-or grant/revoke admin privileges.
+or grant/revoke admin privileges, or reset a user's password.
 
 Usage:
     python scripts/activate_user.py --list                   # list inactive users
@@ -10,9 +10,11 @@ Usage:
     python scripts/activate_user.py <email> --make-admin     # grant admin
     python scripts/activate_user.py <email> --remove-admin   # revoke admin
     python scripts/activate_user.py <email> --delete         # permanently delete account and all user data
+    python scripts/activate_user.py <email> --set-password   # interactively set a new password
 """
 
 import argparse
+import getpass
 import sys
 
 sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.dirname(__file__)))
@@ -101,6 +103,21 @@ def cmd_delete(con, email):
             print(f"  {table}: {n} row(s) removed")
 
 
+def cmd_set_password(con, email, password):
+    from web.auth import hash_password
+
+    row = con.execute("SELECT id, email FROM users WHERE email = ?", (email,)).fetchone()
+    if row is None:
+        print(f"Error: no user with email {email!r} found.", file=sys.stderr)
+        sys.exit(1)
+    con.execute(
+        "UPDATE users SET password_hash = ? WHERE id = ?",
+        (hash_password(password), row["id"]),
+    )
+    con.commit()
+    print(f"Password updated for {row['email']!r} (id={row['id']}).")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Manage user accounts.")
     parser.add_argument("email", nargs="?", help="Email address of the user.")
@@ -109,6 +126,11 @@ def main():
     parser.add_argument("--make-admin", action="store_true", help="Grant admin privileges.")
     parser.add_argument("--remove-admin", action="store_true", help="Revoke admin privileges.")
     parser.add_argument("--delete", action="store_true", help="Permanently delete account and all user data.")
+    parser.add_argument(
+        "--set-password",
+        action="store_true",
+        help="Interactively set a new password.",
+    )
     args = parser.parse_args()
 
     if not args.list and not args.email:
@@ -119,6 +141,13 @@ def main():
 
     if args.list:
         cmd_list(con)
+    elif args.set_password:
+        password = getpass.getpass("New password: ")
+        confirm = getpass.getpass("Confirm new password: ")
+        if password != confirm:
+            print("Error: passwords do not match.", file=sys.stderr)
+            sys.exit(1)
+        cmd_set_password(con, args.email, password)
     elif args.make_admin or args.remove_admin:
         cmd_set_admin(con, args.email, remove=args.remove_admin)
     elif args.delete:
