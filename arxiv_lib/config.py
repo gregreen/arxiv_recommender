@@ -29,10 +29,6 @@ def APP_DB_PATH() -> str:
     return os.path.join(DATA_DIR, "app.db")
 
 
-def UMAP_MODEL_PATH() -> str:
-    return os.path.join(DATA_DIR, "umap_model.joblib")
-
-
 def LOWRES_PROJ_MODEL_PATH() -> str:
     return os.path.join(DATA_DIR, "lowres_proj_model.joblib")
 

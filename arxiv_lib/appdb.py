@@ -189,18 +189,8 @@ CREATE TABLE IF NOT EXISTS group_invites (
 );
 CREATE INDEX IF NOT EXISTS group_invites_token ON group_invites(token);
 
--- 2D UMAP projection for the paper explorer.
--- Precomputed by scripts/compute_umap.py; refreshed nightly.
--- x, y are normalised to [0, 1] from the raw UMAP output.
-CREATE TABLE IF NOT EXISTS paper_umap (
-    arxiv_id    TEXT PRIMARY KEY,
-    x           REAL NOT NULL,
-    y           REAL NOT NULL,
-    computed_at TEXT NOT NULL
-);
-
 -- 2D low-resolution projection for the paper explorer.
--- Method-agnostic successor to paper_umap (e.g., PaCMAP now, others later).
+-- Method-agnostic projection store (currently produced by PaCMAP).
 -- x, y are normalised to [0, 1] from the raw projector output.
 CREATE TABLE IF NOT EXISTS paper_lowres_proj (
     arxiv_id    TEXT PRIMARY KEY,
