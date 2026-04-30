@@ -51,7 +51,7 @@ export default function ChangePasswordPage() {
       <AppNav />
       <div className="max-w-sm mx-auto mt-12 px-4 w-full">
       <div className="bg-white shadow rounded-lg p-8">
-        <h1 className="text-2xl font-bold mb-6 text-gray-800">Security</h1>
+        <h1 className="text-2xl font-bold mb-6 text-gray-800">Change Password</h1>
         {success && (
           <div className="mb-4 text-sm text-green-800 bg-green-50 border border-green-200 rounded p-3">
             Password changed successfully.
