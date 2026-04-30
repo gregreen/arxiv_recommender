@@ -235,6 +235,7 @@ cat <<EOF
      RESTIC_PASSWORD=... RESTIC_REPOSITORY=... restic init
    Confirm the timer is running:
      systemctl list-timers arxiv-backup.timer
+   To restore from a backup, see scripts/restore.sh.
 
 5. Run the first ingest manually (optional, won't wait until tonight):
      sudo -u $USER $PROJECT_DIR/.venv/bin/python3 $PROJECT_DIR/scripts/cron_daily.py
