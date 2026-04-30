@@ -483,6 +483,122 @@ def refresh_recommendations(
         )
 
 
+_EXPLORE_BATCH = 256
+
+
+def score_papers_for_explore(
+    con: sqlite3.Connection,
+    user_id: int,
+    window: str,
+) -> None:
+    """
+    Score papers in *window* that don't yet have a score for the current model,
+    and add them to the recommendations table with rank=0 as a placeholder.
+
+    Unlike refresh_recommendations this function:
+    - Never deletes existing rows.
+    - Only scores papers that are missing a score or whose model_hash differs.
+    - Uses the current window cutoff to filter candidate papers.
+
+    Raises NotEnoughDataError if the user has too few liked papers to train.
+    Raises ValueError for unknown window values.
+    """
+    if window not in RECOMMEND_TIME_WINDOWS:
+        raise ValueError(f"Unknown time window: {window!r}")
+
+    model, model_hash = get_or_train_model(con, user_id)
+    cutoff = _window_cutoff(window, con)
+
+    # Papers in this window without an up-to-date score
+    unscored = con.execute(
+        """
+        SELECT p.arxiv_id
+          FROM papers p
+          LEFT JOIN recommendations r
+               ON r.arxiv_id = p.arxiv_id
+              AND r.user_id = ?
+              AND r.time_window = ?
+              AND r.model_hash = ?
+         WHERE p.published_date IS NOT NULL
+           AND p.published_date >= ?
+           AND r.arxiv_id IS NULL
+        """,
+        (user_id, window, model_hash, cutoff),
+    ).fetchall()
+    todo_ids = [r[0] for r in unscored]
+    if not todo_ids:
+        return
+
+    liked_set = set(model.positive_ids)
+    generated_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Determine whether the model uses query features
+    use_query = model.query_vectors is not None
+
+    rows_to_insert: list[tuple] = []
+
+    for i in range(0, len(todo_ids), _EXPLORE_BATCH):
+        batch = todo_ids[i : i + _EXPLORE_BATCH]
+        batch_vecs = _load_vectors(batch)
+
+        if use_query:
+            batch_search_vecs = _load_search_paper_vectors(batch)
+            scoreable = [aid for aid in batch if aid in batch_vecs and aid in batch_search_vecs]
+        else:
+            batch_search_vecs = {}
+            scoreable = [aid for aid in batch if aid in batch_vecs]
+
+        if not scoreable:
+            continue
+
+        non_liked = [aid for aid in scoreable if aid not in liked_set]
+        liked_here = [aid for aid in scoreable if aid in liked_set]
+
+        scores: dict[str, float] = {}
+
+        if non_liked:
+            v = np.array([batch_vecs[aid] for aid in non_liked], dtype=np.float32)
+            if use_query:
+                vq = np.array([batch_search_vecs[aid] for aid in non_liked], dtype=np.float32)
+                s = model.score_embeddings(v, query_vectors_for_papers=vq)
+            else:
+                s = model.score_embeddings(v)
+            for aid, sc in zip(non_liked, s):
+                scores[aid] = float(sc)
+
+        if liked_here:
+            pos_scores = dict(zip(model.positive_ids, model.score_positive_embeddings()))
+            stragglers = [aid for aid in liked_here if aid not in pos_scores]
+            for aid in liked_here:
+                if aid in pos_scores:
+                    scores[aid] = pos_scores[aid]
+            if stragglers:
+                v_s = np.array([batch_vecs[aid] for aid in stragglers], dtype=np.float32)
+                if use_query:
+                    vq_s = np.array([batch_search_vecs[aid] for aid in stragglers], dtype=np.float32)
+                    s = model.score_embeddings(v_s, query_vectors_for_papers=vq_s)
+                else:
+                    s = model.score_embeddings(v_s)
+                for aid, sc in zip(stragglers, s):
+                    scores[aid] = float(sc)
+
+        for aid in scoreable:
+            if aid in scores:
+                rows_to_insert.append(
+                    (user_id, aid, window, scores[aid], 0, model_hash, generated_at)
+                )
+
+    if rows_to_insert:
+        con.executemany(
+            """
+            INSERT OR REPLACE INTO recommendations
+                (user_id, arxiv_id, time_window, score, rank, model_hash, generated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows_to_insert,
+        )
+
+
 def get_recommendations(
     con: sqlite3.Connection,
     user_id: int,

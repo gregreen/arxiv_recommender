@@ -188,6 +188,16 @@ CREATE TABLE IF NOT EXISTS group_invites (
     used_by        INTEGER REFERENCES users(id)
 );
 CREATE INDEX IF NOT EXISTS group_invites_token ON group_invites(token);
+
+-- 2D UMAP projection for the paper explorer.
+-- Precomputed by scripts/compute_umap.py; refreshed nightly.
+-- x, y are normalised to [0, 1] from the raw UMAP output.
+CREATE TABLE IF NOT EXISTS paper_umap (
+    arxiv_id    TEXT PRIMARY KEY,
+    x           REAL NOT NULL,
+    y           REAL NOT NULL,
+    computed_at TEXT NOT NULL
+);
 """
 
 

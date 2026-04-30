@@ -29,6 +29,10 @@ def APP_DB_PATH() -> str:
     return os.path.join(DATA_DIR, "app.db")
 
 
+def UMAP_MODEL_PATH() -> str:
+    return os.path.join(DATA_DIR, "umap_model.joblib")
+
+
 def SOURCE_CACHE_DIR() -> str:
     path = os.path.join(DATA_DIR, "arxiv_source_cache")
     os.makedirs(path, exist_ok=True)

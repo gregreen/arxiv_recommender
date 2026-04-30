@@ -18,6 +18,7 @@ import GroupsPage from "./pages/GroupsPage";
 import GroupManagePage from "./pages/GroupManagePage";
 import JoinGroupPage from "./pages/JoinGroupPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
+import ExplorePage from "./pages/ExplorePage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -86,6 +87,14 @@ export default function App() {
             element={
               <RequireAuth>
                 <ChangePasswordPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/explore"
+            element={
+              <RequireAuth>
+                <ExplorePage />
               </RequireAuth>
             }
           />

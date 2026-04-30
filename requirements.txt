@@ -5,6 +5,7 @@ arxiv-to-prompt[tokens]
 numpy
 scipy
 scikit-learn
+umap-learn
 fastapi
 uvicorn[standard]
 slowapi

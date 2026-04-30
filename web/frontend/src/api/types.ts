@@ -65,3 +65,27 @@ export interface IdLookupResponse {
 }
 
 export type SearchResponse = SemanticSearchResponse | IdLookupResponse;
+
+export interface ExplorePoint {
+  arxiv_id: string;
+  title: string;
+  x: number;
+  y: number;
+  published_date: string | null;
+  liked: number;
+  score: number | null;
+}
+
+export interface ExploreOverlayPoint {
+  arxiv_id: string;
+  title: string;
+  x: number;
+  y: number;
+}
+
+export interface ExploreResponse {
+  papers: ExplorePoint[];
+  liked_overlay: ExploreOverlayPoint[];
+  umap_computed_at: string | null;
+  umap_available: boolean;
+}
