@@ -10,8 +10,9 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
+from arxiv_lib.arxiv_id import validate_arxiv_id
 from arxiv_lib.config import RECOMMEND_TIME_WINDOWS
-from arxiv_lib.search import SearchEmbeddingError, search_papers
+from arxiv_lib.search import SearchEmbeddingError, lookup_paper_by_id, search_papers
 from web.dependencies import get_current_user, get_db
 from web.limiter import limiter
 
@@ -32,6 +33,15 @@ def search(
     db: sqlite3.Connection = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    # If the query looks like an arXiv ID, do a direct DB lookup instead of
+    # a semantic search.
+    try:
+        canonical_id = validate_arxiv_id(body.query.strip())
+        paper = lookup_paper_by_id(db, user["id"], canonical_id)
+        return {"kind": "id_lookup", "arxiv_id": canonical_id, "paper": paper}
+    except ValueError:
+        pass  # not an arXiv ID — fall through to semantic search
+
     try:
         results = search_papers(db, user["id"], body.query)
     except SearchEmbeddingError as exc:
@@ -41,4 +51,4 @@ def search(
             detail="Embedding service temporarily unavailable.",
         ) from exc
 
-    return results
+    return {"kind": "semantic", **results}

@@ -245,3 +245,47 @@ def search_papers(
         result[window] = window_results
 
     return result
+
+
+def lookup_paper_by_id(
+    con: sqlite3.Connection,
+    user_id: int,
+    arxiv_id: str,
+) -> dict | None:
+    """
+    Look up a single paper by its canonical arXiv ID.
+
+    Returns a Recommendation-shaped dict (score=None, rank=1, generated_at=None)
+    if the paper exists in the database, or None if it is not found.
+    """
+    row = con.execute(
+        """
+        SELECT p.arxiv_id, p.title, p.authors, p.published_date,
+               ul.liked
+          FROM papers p
+          LEFT JOIN user_papers ul
+                 ON ul.arxiv_id = p.arxiv_id AND ul.user_id = ?
+         WHERE p.arxiv_id = ?
+        """,
+        (user_id, arxiv_id),
+    ).fetchone()
+
+    if row is None:
+        return None
+
+    aid, title, authors_json, published_date, liked = row
+    try:
+        authors = json.loads(authors_json) if authors_json else []
+    except Exception:
+        authors = []
+
+    return {
+        "arxiv_id":       aid,
+        "title":          title or "",
+        "authors":        authors,
+        "published_date": published_date,
+        "score":          None,
+        "rank":           1,
+        "liked":          liked,
+        "generated_at":   None,
+    }

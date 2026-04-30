@@ -127,13 +127,19 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
     if (e.key === "Escape") clearSearch();
   }
 
-  const displayResults = isSearchActive ? (searchResultsByWindow?.[window] ?? []) : results;
+  const displayResults = isSearchActive
+    ? searchResultsByWindow?.kind === "semantic"
+      ? searchResultsByWindow[window]
+      : searchResultsByWindow?.paper
+        ? [searchResultsByWindow.paper]
+        : []
+    : results;
 
   return (
     <div className="flex flex-col h-full">
       {/* Tabs */}
       <div className="flex gap-1 p-3 border-b border-gray-200 shrink-0">
-        {WINDOWS.map((w) => (
+        {WINDOWS.map((w) => !isSearchActive || searchResultsByWindow?.kind !== "id_lookup" ? (
           <button
             key={w.value}
             onClick={() => handleWindowChange(w.value)}
@@ -145,7 +151,7 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
           >
             {w.label}
           </button>
-        ))}
+        ) : null)}
         <div className="ml-auto flex items-center gap-1">
           {!isSearchActive && (
             <button
@@ -228,9 +234,9 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
       {/* List */}
       <div className="flex-1 overflow-y-auto p-3">
         {/* Search mode result count */}
-        {isSearchActive && (searchResultsByWindow?.[window] ?? []).length > 0 && (
+        {isSearchActive && searchResultsByWindow?.kind === "semantic" && (searchResultsByWindow[window] ?? []).length > 0 && (
           <div className="text-xs text-gray-500 mb-2">
-            {(searchResultsByWindow![window]).length} papers sorted by relevance to &ldquo;{committedQuery}&rdquo;
+            {(searchResultsByWindow[window]).length} papers sorted by relevance to &ldquo;{committedQuery}&rdquo;
           </div>
         )}
 
@@ -271,7 +277,10 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
         {!loading && !error && !onboarding && !isSearchActive && results.length === 0 && (
           <div className="text-sm text-gray-400 text-center mt-8">No recommendations yet.</div>
         )}
-        {isSearchActive && !isSearchLoading && !searchError && (searchResultsByWindow?.[window] ?? []).length === 0 && (
+        {isSearchActive && !isSearchLoading && !searchError && searchResultsByWindow?.kind === "id_lookup" && searchResultsByWindow.paper === null && (
+          <div className="text-sm text-gray-400 text-center mt-8">{searchResultsByWindow.arxiv_id} not found.</div>
+        )}
+        {isSearchActive && !isSearchLoading && !searchError && searchResultsByWindow?.kind === "semantic" && (searchResultsByWindow[window] ?? []).length === 0 && (
           <div className="text-sm text-gray-400 text-center mt-8">No results found.</div>
         )}
 

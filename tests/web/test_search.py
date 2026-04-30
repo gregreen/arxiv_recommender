@@ -8,9 +8,11 @@ import pytest
 
 from arxiv_lib.search import SearchEmbeddingError
 
-_FAKE_RESULTS = [
-    {"arxiv_id": "2309.06676", "title": "Test Paper", "score": 0.95},
-]
+_FAKE_RESULTS = {
+    "day": [{"arxiv_id": "2309.06676", "title": "Test Paper", "score": 0.95}],
+    "week": [],
+    "month": [],
+}
 
 
 class TestSearch:
@@ -21,8 +23,29 @@ class TestSearch:
             r = client.post("/api/search", json={"query": "black holes"})
         assert r.status_code == 200
         data = r.json()
-        assert len(data) == 1
-        assert data[0]["arxiv_id"] == "2309.06676"
+        assert data["kind"] == "semantic"
+        assert len(data["day"]) == 1
+        assert data["day"][0]["arxiv_id"] == "2309.06676"
+
+    def test_search_id_lookup(self, client):
+        """If the query is a valid arXiv ID, return an id_lookup response."""
+        fake_paper = {"arxiv_id": "2309.06676", "title": "Test Paper", "score": None}
+        with patch("web.routers.search.lookup_paper_by_id", return_value=fake_paper):
+            r = client.post("/api/search", json={"query": "2309.06676"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["kind"] == "id_lookup"
+        assert data["arxiv_id"] == "2309.06676"
+        assert data["paper"]["arxiv_id"] == "2309.06676"
+
+    def test_search_id_lookup_not_found(self, client):
+        """If the query is a valid arXiv ID not in the DB, paper should be null."""
+        with patch("web.routers.search.lookup_paper_by_id", return_value=None):
+            r = client.post("/api/search", json={"query": "2309.06676"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["kind"] == "id_lookup"
+        assert data["paper"] is None
 
     def test_search_embedding_error_503(self, client):
         """If the embedding service is unavailable (SearchEmbeddingError) the

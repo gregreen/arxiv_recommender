@@ -51,8 +51,17 @@ export interface ImportResult {
 
 export type TimeWindow = "day" | "week" | "month";
 
-export interface SearchResponse {
+export interface SemanticSearchResponse {
+  kind: "semantic";
   day: Recommendation[];
   week: Recommendation[];
   month: Recommendation[];
 }
+
+export interface IdLookupResponse {
+  kind: "id_lookup";
+  arxiv_id: string;
+  paper: Recommendation | null;
+}
+
+export type SearchResponse = SemanticSearchResponse | IdLookupResponse;
