@@ -86,6 +86,6 @@ export interface ExploreOverlayPoint {
 export interface ExploreResponse {
   papers: ExplorePoint[];
   liked_overlay: ExploreOverlayPoint[];
-  umap_computed_at: string | null;
-  umap_available: boolean;
+  lowres_proj_computed_at: string | null;
+  lowres_proj_available: boolean;
 }

@@ -5,10 +5,10 @@ Tests for GET /api/explore
 import pytest
 
 
-def _insert_umap_row(db, arxiv_id: str, x: float, y: float,
-                     computed_at: str = "2026-04-30T03:00:00") -> None:
+def _insert_lowres_proj_row(db, arxiv_id: str, x: float, y: float,
+                            computed_at: str = "2026-04-30T03:00:00") -> None:
     db.execute(
-        "INSERT INTO paper_umap (arxiv_id, x, y, computed_at) VALUES (?, ?, ?, ?)",
+        "INSERT INTO paper_lowres_proj (arxiv_id, x, y, computed_at) VALUES (?, ?, ?, ?)",
         (arxiv_id, x, y, computed_at),
     )
     db.commit()
@@ -31,27 +31,27 @@ def _like_paper(db, user_id: int, arxiv_id: str) -> None:
 
 
 class TestExplore:
-    def test_no_umap_returns_unavailable(self, client):
-        """If paper_umap is empty, umap_available should be False."""
+    def test_no_projection_returns_unavailable(self, client):
+        """If paper_lowres_proj is empty, lowres_proj_available should be False."""
         r = client.get("/api/explore?window=week")
         assert r.status_code == 200
         data = r.json()
-        assert data["umap_available"] is False
+        assert data["lowres_proj_available"] is False
         assert data["papers"] == []
         assert data["liked_overlay"] == []
-        assert data["umap_computed_at"] is None
+        assert data["lowres_proj_computed_at"] is None
 
     def test_returns_papers_in_window(self, client, web_db):
-        """Papers with UMAP coords in the selected window should be returned."""
+        """Papers with projection coords in the selected window should be returned."""
         _insert_paper(web_db, "2404.00001", published_date="2024-04-01")
         _insert_paper(web_db, "2604.99999", published_date="2026-04-30")
-        _insert_umap_row(web_db, "2404.00001", 0.1, 0.2)
-        _insert_umap_row(web_db, "2604.99999", 0.5, 0.6)
+        _insert_lowres_proj_row(web_db, "2404.00001", 0.1, 0.2)
+        _insert_lowres_proj_row(web_db, "2604.99999", 0.5, 0.6)
 
         r = client.get("/api/explore?window=week")
         assert r.status_code == 200
         data = r.json()
-        assert data["umap_available"] is True
+        assert data["lowres_proj_available"] is True
         arxiv_ids = {p["arxiv_id"] for p in data["papers"]}
         # Recent paper should be in the week window; old one should not
         assert "2604.99999" in arxiv_ids
@@ -63,7 +63,7 @@ class TestExplore:
     def test_liked_overlay_included(self, client, web_db):
         """Liked papers should appear in liked_overlay regardless of window."""
         _insert_paper(web_db, "2404.00001", published_date="2024-04-01")
-        _insert_umap_row(web_db, "2404.00001", 0.3, 0.7)
+        _insert_lowres_proj_row(web_db, "2404.00001", 0.3, 0.7)
         _like_paper(web_db, user_id=1, arxiv_id="2404.00001")
 
         r = client.get("/api/explore?window=day")

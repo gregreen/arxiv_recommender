@@ -198,6 +198,16 @@ CREATE TABLE IF NOT EXISTS paper_umap (
     y           REAL NOT NULL,
     computed_at TEXT NOT NULL
 );
+
+-- 2D low-resolution projection for the paper explorer.
+-- Method-agnostic successor to paper_umap (e.g., PaCMAP now, others later).
+-- x, y are normalised to [0, 1] from the raw projector output.
+CREATE TABLE IF NOT EXISTS paper_lowres_proj (
+    arxiv_id    TEXT PRIMARY KEY,
+    x           REAL NOT NULL,
+    y           REAL NOT NULL,
+    computed_at TEXT NOT NULL
+);
 """
 
 

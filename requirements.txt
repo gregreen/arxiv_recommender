@@ -6,6 +6,7 @@ numpy
 scipy
 scikit-learn
 umap-learn
+pacmap
 fastapi
 uvicorn[standard]
 slowapi

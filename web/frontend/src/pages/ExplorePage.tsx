@@ -128,7 +128,7 @@ export default function ExplorePage() {
 
   // Main D3 effect — rebuilds when data or container size changes.
   useEffect(() => {
-    if (!svgRef.current || !size || !data?.umap_available) return;
+    if (!svgRef.current || !size || !data?.lowres_proj_available) return;
     if (data.papers.length === 0 && data.liked_overlay.length === 0) return;
 
     const { w, h } = size;
@@ -217,9 +217,9 @@ export default function ExplorePage() {
   // Staleness banner
   // ------------------------------------------------------------------
   const staleHours = (() => {
-    if (!data?.umap_computed_at) return null;
+    if (!data?.lowres_proj_computed_at) return null;
     try {
-      const dt = new Date(data.umap_computed_at + (data.umap_computed_at.endsWith("Z") ? "" : "Z"));
+      const dt = new Date(data.lowres_proj_computed_at + (data.lowres_proj_computed_at.endsWith("Z") ? "" : "Z"));
       const hours = (Date.now() - dt.getTime()) / 3_600_000;
       return hours > 24 ? Math.round(hours) : null;
     } catch { return null; }
@@ -310,8 +310,8 @@ export default function ExplorePage() {
               </div>
             )}
 
-            {/* No UMAP yet */}
-            {!loading && !fetchError && data && !data.umap_available && (
+            {/* No projection yet */}
+            {!loading && !fetchError && data && !data.lowres_proj_available && (
               <div className="absolute inset-0 flex items-center justify-center p-8">
                 <div className="text-sm text-gray-500 text-center max-w-sm">
                   <p className="font-medium mb-1">Paper map is being computed.</p>
