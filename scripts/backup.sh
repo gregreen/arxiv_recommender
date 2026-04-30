@@ -93,21 +93,30 @@
 # 2. Create an IAM policy granting read+write but NOT delete:
 #    {
 #      "Version": "2012-10-17",
-#      "Statement": [{
-#        "Effect": "Allow",
-#        "Action": [
-#          "s3:PutObject", "s3:GetObject", "s3:HeadObject",
-#          "s3:ListBucket", "s3:GetBucketLocation",
-#          "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts",
-#          "s3:ListBucketMultipartUploads"
-#        ],
-#        "Resource": [
-#          "arn:aws:s3:::<bucket-name>",
-#          "arn:aws:s3:::<bucket-name>/*"
-#        ]
-#      }]
+#      "Statement": [
+#        {
+#          "Effect": "Allow",
+#          "Action": [
+#            "s3:PutObject", "s3:GetObject", "s3:HeadObject",
+#            "s3:ListBucket", "s3:GetBucketLocation",
+#            "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts",
+#            "s3:ListBucketMultipartUploads"
+#          ],
+#          "Resource": [
+#            "arn:aws:s3:::<bucket-name>",
+#            "arn:aws:s3:::<bucket-name>/*"
+#          ]
+#        },
+#        {
+#          "Effect": "Allow",
+#          "Action": ["s3:DeleteObject"],
+#          "Resource": ["arn:aws:s3:::<bucket-name>/locks/*"]
+#        }
+#      ]
 #    }
-#    Notably absent: s3:DeleteObject, s3:DeleteBucket.
+#    s3:DeleteObject is scoped to locks/* only so restic can clean up its
+#    repository lock after each backup. It cannot delete any snapshot data.
+#    Notably absent on /*: s3:DeleteObject, s3:DeleteBucket.
 #    Attach this policy to a dedicated IAM user or role used only for backups.
 #
 # 3. One-time repository init:
@@ -127,21 +136,33 @@
 # 2. Create a RAM user with OpenAPI access. Attach an inline policy:
 #    {
 #      "Version": "1",
-#      "Statement": [{
-#        "Effect": "Allow",
-#        "Action": [
-#          "oss:PutObject", "oss:GetObject", "oss:HeadObject",
-#          "oss:ListObjects", "oss:ListObjectVersions",
-#          "oss:GetBucketLocation", "oss:GetBucketInfo", "oss:GetBucketVersioning",
-#          "oss:ListMultipartUploads", "oss:AbortMultipartUpload", "oss:ListParts"
-#        ],
-#        "Resource": [
-#          "acs:oss:*:*:<bucket-name>",
-#          "acs:oss:*:*:<bucket-name>/*"
-#        ]
-#      }]
+#      "Statement": [
+#        {
+#          "Effect": "Allow",
+#          "Action": [
+#            "oss:PutObject", "oss:GetObject", "oss:HeadObject",
+#            "oss:ListObjects", "oss:ListObjectVersions",
+#            "oss:GetBucketLocation", "oss:GetBucketInfo", "oss:GetBucketVersioning",
+#            "oss:ListMultipartUploads", "oss:AbortMultipartUpload", "oss:ListParts"
+#          ],
+#          "Resource": [
+#            "acs:oss:*:*:<bucket-name>",
+#            "acs:oss:*:*:<bucket-name>/*"
+#          ]
+#        },
+#        {
+#          "Effect": "Allow",
+#          "Action": ["oss:DeleteObject"],
+#          "Resource": ["acs:oss:*:*:<bucket-name>/locks/*"]
+#        }
+#      ]
 #    }
-#    Notably absent: oss:DeleteObject, oss:DeleteBucket, oss:AbortBucketWorm.
+#    oss:DeleteObject is scoped to locks/* only so restic can clean up its
+#    repository lock after each backup. It cannot delete any snapshot data.
+#    Notably absent on /*: oss:DeleteObject, oss:DeleteBucket, oss:AbortBucketWorm.
+#
+#    For a separate restore-only user (recommended), see scripts/restore.sh for
+#    the minimal policy.
 #
 # 3. One-time repository init:
 #      export AWS_ACCESS_KEY_ID=<ram-access-key-id>
@@ -165,9 +186,13 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # RESTORING
 # ─────────────────────────────────────────────────────────────────────────────
-#   List snapshots:   restic snapshots
-#   Restore latest:   restic restore latest --target /tmp/restore
-#   Restore specific: restic restore <snapshot-id> --target /tmp/restore
+#   Use scripts/restore.sh. Quick reference:
+#     List snapshots:   restic snapshots
+#     Restore latest:   bash scripts/restore.sh
+#     Restore specific: bash scripts/restore.sh --snapshot <snapshot-id>
+#     Dry run:          bash scripts/restore.sh --dry-run
+#     Preserve new papers not in the backup:
+#                       bash scripts/restore.sh --merge-papers
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # NOTE ON PRUNING
