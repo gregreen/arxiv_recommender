@@ -62,20 +62,23 @@ export default function ExplorePage() {
   // ------------------------------------------------------------------
   const [selectedArxivId, setSelectedArxivId] = useState<string | null>(null);
   const [selectedLiked,   setSelectedLiked]   = useState<number | null>(null);
+  const [selectedScore,   setSelectedScore]   = useState<number | null>(null);
 
   // Back gesture via browser history.
   useEffect(() => {
     function handlePopState() {
       setSelectedArxivId(null);
       setSelectedLiked(null);
+      setSelectedScore(null);
     }
     globalThis.addEventListener("popstate", handlePopState);
     return () => globalThis.removeEventListener("popstate", handlePopState);
   }, []);
 
-  const handleSelect = useCallback((arxivId: string, liked: number | null) => {
+  const handleSelect = useCallback((arxivId: string, liked: number | null, score: number | null) => {
     setSelectedArxivId(arxivId);
     setSelectedLiked(likedCacheRef.current[arxivId] ?? liked);
+    setSelectedScore(score);
     globalThis.history.pushState({ detail: true }, "");
   }, []);
 
@@ -167,7 +170,7 @@ export default function ExplorePage() {
       .attr("cursor", "pointer")
       .on("mouseover", (event: MouseEvent, d) => showTooltip(event, d.title))
       .on("mouseout", hideTooltip)
-      .on("click", (_event: MouseEvent, d) => handleSelectRef.current(d.arxiv_id, d.liked));
+      .on("click", (_event: MouseEvent, d) => handleSelectRef.current(d.arxiv_id, d.liked, d.score));
 
     // --- Liked overlay layer ---
     const likedLayer = root.append("g")
@@ -188,7 +191,7 @@ export default function ExplorePage() {
       .on("mouseout", hideTooltip)
       .on("click", (_event: MouseEvent, d) => {
         const liked = likedCacheRef.current[d.arxiv_id] ?? 1;
-        handleSelectRef.current(d.arxiv_id, liked);
+        handleSelectRef.current(d.arxiv_id, liked, d.score);
       });
 
     // --- Zoom ---
@@ -350,7 +353,7 @@ export default function ExplorePage() {
             <PaperDetail
               arxivId={selectedArxivId}
               initialLiked={selectedLiked}
-              score={null}
+              score={selectedScore}
               onLikedChange={handleLikedChange}
             />
           </div>

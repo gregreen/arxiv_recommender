@@ -361,6 +361,103 @@ class TestRefreshRecommendations:
 
 
 # ---------------------------------------------------------------------------
+# score_papers_for_explore
+# ---------------------------------------------------------------------------
+
+class TestScorePapersForExplore:
+    """Tests for score_papers_for_explore, including the extra_ids path."""
+
+    def _setup_scoreable_user(self, con, data_dir):
+        """Insert a user with RECOMMEND_MIN_LIKED liked papers + background corpus."""
+        _build_corpus(con, data_dir)  # 70 background papers with embeddings
+        _insert_user(con)
+        rng = np.random.default_rng(seed=11)
+        d = RECOMMENDATION_EMBEDDING_DIM
+        center_pos = np.zeros(d, dtype=np.float32)
+        center_pos[0] = 3.0
+        liked_ids = [f"2501.{i:05d}" for i in range(RECOMMEND_MIN_LIKED)]
+        for aid in liked_ids:
+            _insert_paper(con, aid, date.today().isoformat())
+            _like_paper(con, aid)
+            vec = (center_pos + rng.normal(scale=0.1, size=d)).astype(np.float32)
+            _insert_rec_embedding(data_dir, aid, vec)
+        return liked_ids
+
+    def test_window_papers_are_scored(self, app_db_con, data_dir):
+        """Papers within the window get a recommendations row after the call."""
+        self._setup_scoreable_user(app_db_con, data_dir)
+        today = date.today().isoformat()
+        _insert_paper(app_db_con, "2501.99999", today)
+        rng = np.random.default_rng(seed=22)
+        _insert_rec_embedding(data_dir, "2501.99999",
+                               rng.standard_normal(RECOMMENDATION_EMBEDDING_DIM).astype(np.float32))
+
+        from arxiv_lib.recommend import score_papers_for_explore
+        score_papers_for_explore(app_db_con, _USER_ID, "week")
+        app_db_con.commit()
+
+        row = app_db_con.execute(
+            "SELECT score FROM recommendations WHERE user_id=? AND arxiv_id=? AND time_window='week'",
+            (_USER_ID, "2501.99999"),
+        ).fetchone()
+        assert row is not None
+        assert row[0] is not None
+
+    def test_extra_ids_outside_window_are_scored(self, app_db_con, data_dir):
+        """An old paper passed as extra_ids gets scored even though it predates the cutoff."""
+        self._setup_scoreable_user(app_db_con, data_dir)
+
+        old_id = "1401.00001"
+        _insert_paper(app_db_con, old_id, "2014-01-15")  # way before any cutoff
+        rng = np.random.default_rng(seed=33)
+        _insert_rec_embedding(data_dir, old_id,
+                               rng.standard_normal(RECOMMENDATION_EMBEDDING_DIM).astype(np.float32))
+
+        from arxiv_lib.recommend import score_papers_for_explore
+        score_papers_for_explore(app_db_con, _USER_ID, "week", extra_ids=[old_id])
+        app_db_con.commit()
+
+        row = app_db_con.execute(
+            "SELECT score FROM recommendations WHERE user_id=? AND arxiv_id=? AND time_window='week'",
+            (_USER_ID, old_id),
+        ).fetchone()
+        assert row is not None, "Old liked paper should have been scored via extra_ids"
+        assert row[0] is not None
+
+    def test_extra_ids_already_scored_are_skipped(self, app_db_con, data_dir):
+        """extra_ids with an up-to-date model_hash are not re-inserted."""
+        self._setup_scoreable_user(app_db_con, data_dir)
+
+        old_id = "1401.00002"
+        _insert_paper(app_db_con, old_id, "2014-01-15")
+        rng = np.random.default_rng(seed=44)
+        _insert_rec_embedding(data_dir, old_id,
+                               rng.standard_normal(RECOMMENDATION_EMBEDDING_DIM).astype(np.float32))
+
+        # First call — scores the paper and persists model hash
+        from arxiv_lib.recommend import score_papers_for_explore
+        score_papers_for_explore(app_db_con, _USER_ID, "week", extra_ids=[old_id])
+        app_db_con.commit()
+
+        count_after_first = app_db_con.execute(
+            "SELECT COUNT(*) FROM recommendations WHERE user_id=? AND arxiv_id=? AND time_window='week'",
+            (_USER_ID, old_id),
+        ).fetchone()[0]
+
+        # Second call — should be a no-op (model hash unchanged, score already present)
+        score_papers_for_explore(app_db_con, _USER_ID, "week", extra_ids=[old_id])
+        app_db_con.commit()
+
+        count_after_second = app_db_con.execute(
+            "SELECT COUNT(*) FROM recommendations WHERE user_id=? AND arxiv_id=? AND time_window='week'",
+            (_USER_ID, old_id),
+        ).fetchone()[0]
+
+        assert count_after_first == 1
+        assert count_after_second == 1  # no duplicate inserted
+
+
+# ---------------------------------------------------------------------------
 # get_group_recommendations
 # ---------------------------------------------------------------------------
 

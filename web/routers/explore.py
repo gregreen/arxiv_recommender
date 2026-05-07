@@ -174,8 +174,9 @@ def explore(
     ensure_lowres_proj_coords(db, all_candidate_ids)
 
     # Fill in any missing recommendation scores (no-op if not enough liked papers).
+    # Pass liked_ids as extra_ids so papers older than the window cutoff also get scored.
     try:
-        score_papers_for_explore(db, user["id"], window)
+        score_papers_for_explore(db, user["id"], window, extra_ids=liked_ids)
     except NotEnoughDataError:
         pass  # No model yet — scores will be NULL in the response
 
@@ -218,15 +219,18 @@ def explore(
     overlay_rows = db.execute(
         """
         SELECT ul.arxiv_id, p.title,
-               u.x, u.y
+               u.x, u.y,
+               r.score
           FROM user_papers ul
           JOIN papers p       ON p.arxiv_id = ul.arxiv_id
           JOIN paper_lowres_proj u   ON u.arxiv_id = ul.arxiv_id
+          LEFT JOIN recommendations r
+                 ON r.arxiv_id = ul.arxiv_id AND r.user_id = ? AND r.time_window = ?
          WHERE ul.user_id = ? AND ul.liked = 1
          ORDER BY ul.added_at DESC
          LIMIT ?
         """,
-        (user["id"], LIKED_OVERLAY_LIMIT),
+        (user["id"], window, user["id"], LIKED_OVERLAY_LIMIT),
     ).fetchall()
 
     liked_overlay = [
@@ -235,6 +239,7 @@ def explore(
             "title":    r["title"] or "",
             "x":        r["x"],
             "y":        r["y"],
+            "score":    r["score"],
         }
         for r in overlay_rows
     ]

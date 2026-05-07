@@ -81,6 +81,7 @@ export interface ExploreOverlayPoint {
   title: string;
   x: number;
   y: number;
+  score: number | null;
 }
 
 export interface ExploreResponse {

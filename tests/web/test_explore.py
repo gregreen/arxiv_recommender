@@ -30,6 +30,26 @@ def _like_paper(db, user_id: int, arxiv_id: str) -> None:
     db.commit()
 
 
+def _insert_recommendation(
+    db,
+    user_id: int,
+    arxiv_id: str,
+    time_window: str,
+    score: float,
+    rank: int = 1,
+    model_hash: str = "test-model",
+) -> None:
+    db.execute(
+        """
+        INSERT OR REPLACE INTO recommendations
+            (user_id, arxiv_id, time_window, score, rank, model_hash, generated_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        """,
+        (user_id, arxiv_id, time_window, score, rank, model_hash),
+    )
+    db.commit()
+
+
 class TestExplore:
     def test_no_projection_returns_unavailable(self, client):
         """If paper_lowres_proj is empty, lowres_proj_available should be False."""
@@ -72,6 +92,20 @@ class TestExplore:
         # Old paper not in day window papers but in liked_overlay
         assert not any(p["arxiv_id"] == "2404.00001" for p in data["papers"])
         assert any(p["arxiv_id"] == "2404.00001" for p in data["liked_overlay"])
+
+    def test_liked_overlay_includes_score_when_available(self, client, web_db):
+        """Liked overlay points should include recommendation score when present."""
+        _insert_paper(web_db, "2404.00001", published_date="2024-04-01")
+        _insert_lowres_proj_row(web_db, "2404.00001", 0.3, 0.7)
+        _like_paper(web_db, user_id=1, arxiv_id="2404.00001")
+        _insert_recommendation(web_db, user_id=1, arxiv_id="2404.00001", time_window="day", score=-0.42)
+
+        r = client.get("/api/explore?window=day")
+        assert r.status_code == 200
+        data = r.json()
+
+        overlay = next(p for p in data["liked_overlay"] if p["arxiv_id"] == "2404.00001")
+        assert overlay["score"] == pytest.approx(-0.42)
 
     def test_invalid_window_422(self, client):
         """An unknown window value should return 422."""

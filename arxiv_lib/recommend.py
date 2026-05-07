@@ -490,6 +490,7 @@ def score_papers_for_explore(
     con: sqlite3.Connection,
     user_id: int,
     window: str,
+    extra_ids: list[str] | None = None,
 ) -> None:
     """
     Score papers in *window* that don't yet have a score for the current model,
@@ -499,6 +500,11 @@ def score_papers_for_explore(
     - Never deletes existing rows.
     - Only scores papers that are missing a score or whose model_hash differs.
     - Uses the current window cutoff to filter candidate papers.
+
+    *extra_ids* is an optional list of arXiv IDs to score regardless of their
+    published_date (e.g. liked papers older than the window cutoff).  They are
+    stored under the same *window* key in the recommendations table so the
+    explore overlay LEFT JOIN can find them.
 
     Raises NotEnoughDataError if the user has too few liked papers to train.
     Raises ValueError for unknown window values.
@@ -526,6 +532,31 @@ def score_papers_for_explore(
         (user_id, window, model_hash, cutoff),
     ).fetchall()
     todo_ids = [r[0] for r in unscored]
+
+    # Also score extra_ids (liked overlay papers outside the date window) that
+    # don't yet have an up-to-date score under this window.
+    if extra_ids:
+        placeholders = ",".join("?" * len(extra_ids))
+        extra_unscored = con.execute(
+            f"""
+            SELECT p.arxiv_id
+              FROM papers p
+              LEFT JOIN recommendations r
+                   ON r.arxiv_id = p.arxiv_id
+                  AND r.user_id = ?
+                  AND r.time_window = ?
+                  AND r.model_hash = ?
+             WHERE p.arxiv_id IN ({placeholders})
+               AND r.arxiv_id IS NULL
+            """,
+            (user_id, window, model_hash, *extra_ids),
+        ).fetchall()
+        seen = set(todo_ids)
+        for r in extra_unscored:
+            if r[0] not in seen:
+                todo_ids.append(r[0])
+                seen.add(r[0])
+
     if not todo_ids:
         return
 
