@@ -175,7 +175,7 @@ export default function ExplorePage() {
     // --- Liked overlay layer ---
     const likedLayer = root.append("g")
       .attr("class", "liked-layer")
-      .style("display", showLikedRef.current ? null : "none");
+      .style("display", showLikedRef.current ? "" : "none");
 
     likedLayer
       .selectAll<SVGCircleElement, typeof data.liked_overlay[0]>("circle")
@@ -213,7 +213,7 @@ export default function ExplorePage() {
     if (!svgRef.current) return;
     d3.select(svgRef.current)
       .select(".liked-layer")
-      .style("display", showLiked ? null : "none");
+      .style("display", showLiked ? "" : "none");
   }, [showLiked]);
 
   // ------------------------------------------------------------------
