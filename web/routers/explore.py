@@ -33,7 +33,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from arxiv_lib.config import LOWRES_PROJ_MODEL_PATH, RECOMMEND_TIME_WINDOWS
 from arxiv_lib.lowres_proj_utils import ensure_lowres_proj_coords
-from arxiv_lib.recommend import NotEnoughDataError, score_papers_for_explore
+from arxiv_lib.recommend import NotEnoughDataError, _window_cutoff, score_papers_for_explore
 from web.dependencies import get_current_user, get_db
 from web.limiter import limiter
 
@@ -47,12 +47,6 @@ log = logging.getLogger(__name__)
 LOWRES_PROJ_STALE_DAYS = 7
 LIKED_OVERLAY_LIMIT = 128
 WINDOW_PAPERS_LIMIT = 5000
-
-_WINDOW_DELTAS = {
-    "day":   timedelta(days=1),
-    "week":  timedelta(weeks=1),
-    "month": timedelta(days=30),
-}
 
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
 
@@ -155,7 +149,8 @@ def explore(
     # ------------------------------------------------------------------
     # Pass 1: collect candidate IDs for coord projection + scoring
     # ------------------------------------------------------------------
-    cutoff = (datetime.now(timezone.utc) - _WINDOW_DELTAS[window]).strftime("%Y-%m-%d")
+    # Use the same anchor logic as the recommendations endpoint.
+    cutoff = _window_cutoff(window, db)
 
     window_id_rows = db.execute(
         "SELECT arxiv_id FROM papers WHERE published_date >= ? ORDER BY published_date DESC LIMIT ?",
@@ -171,7 +166,18 @@ def explore(
 
     # Ensure lowres coords are current for all relevant papers (blocking, fast).
     all_candidate_ids = list(dict.fromkeys(window_ids + liked_ids))  # deduplicated
+    log.info(
+        "explore: window=%s cutoff=%s window_ids=%d liked_ids=%d total_candidates=%d",
+        window, cutoff, len(window_ids), len(liked_ids), len(all_candidate_ids),
+    )
     ensure_lowres_proj_coords(db, all_candidate_ids)
+    if window_ids:
+        placeholders = ",".join("?" * len(window_ids))
+        n_coords = db.execute(
+            f"SELECT COUNT(*) FROM paper_lowres_proj WHERE arxiv_id IN ({placeholders})",
+            window_ids,
+        ).fetchone()[0]
+        log.info("explore: after ensure_lowres_proj_coords: %d/%d window_ids have coords.", n_coords, len(window_ids))
 
     # Fill in any missing recommendation scores (no-op if not enough liked papers).
     # Pass liked_ids as extra_ids so papers older than the window cutoff also get scored.
@@ -214,6 +220,7 @@ def explore(
         }
         for r in papers_rows
     ]
+    log.info("explore: main query returned %d papers for window=%s.", len(papers), window)
 
     # Liked overlay: 128 most recently liked papers (regardless of window).
     overlay_rows = db.execute(

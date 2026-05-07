@@ -217,18 +217,6 @@ export default function ExplorePage() {
   }, [showLiked]);
 
   // ------------------------------------------------------------------
-  // Staleness banner
-  // ------------------------------------------------------------------
-  const staleHours = (() => {
-    if (!data?.lowres_proj_computed_at) return null;
-    try {
-      const dt = new Date(data.lowres_proj_computed_at + (data.lowres_proj_computed_at.endsWith("Z") ? "" : "Z"));
-      const hours = (Date.now() - dt.getTime()) / 3_600_000;
-      return hours > 24 ? Math.round(hours) : null;
-    } catch { return null; }
-  })();
-
-  // ------------------------------------------------------------------
   // Render
   // ------------------------------------------------------------------
   return (
@@ -287,13 +275,6 @@ export default function ExplorePage() {
               Score
             </button>
           </div>
-
-          {/* Staleness banner */}
-          {staleHours !== null && (
-            <div className="px-3 py-1.5 text-xs text-gray-500 bg-gray-50 border-b border-gray-100 shrink-0">
-              Map last updated {staleHours}h ago — a fresh map is being computed in the background.
-            </div>
-          )}
 
           {/* Chart area */}
           <div ref={containerRef} className="flex-1 relative overflow-hidden">

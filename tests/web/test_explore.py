@@ -82,6 +82,9 @@ class TestExplore:
 
     def test_liked_overlay_included(self, client, web_db):
         """Liked papers should appear in liked_overlay regardless of window."""
+        # Insert a recent anchor paper so MAX(published_date) is well past the old paper.
+        _insert_paper(web_db, "2604.99999", published_date="2026-04-30")
+        _insert_lowres_proj_row(web_db, "2604.99999", 0.5, 0.5)
         _insert_paper(web_db, "2404.00001", published_date="2024-04-01")
         _insert_lowres_proj_row(web_db, "2404.00001", 0.3, 0.7)
         _like_paper(web_db, user_id=1, arxiv_id="2404.00001")
