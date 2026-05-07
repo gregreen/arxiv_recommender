@@ -174,6 +174,7 @@ def ensure_lowres_proj_coords(con: sqlite3.Connection, arxiv_ids: list[str]) -> 
             "INSERT OR REPLACE INTO paper_lowres_proj (arxiv_id, x, y, computed_at) VALUES (?, ?, ?, ?)",
             rows_to_write,
         )
+        con.commit()
     else:
         logger.warning(
             "ensure_lowres_proj_coords: no rows written despite %d todo ids. Sample todo: %s",
