@@ -136,7 +136,7 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
     : results;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Tabs */}
       <div className="flex gap-1 p-3 border-b border-gray-200 shrink-0">
         {WINDOWS.map((w) => !isSearchActive || searchResultsByWindow?.kind !== "id_lookup" ? (
