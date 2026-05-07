@@ -61,8 +61,8 @@ def parse_args() -> argparse.Namespace:
                    help="Maximum number of papers to include in training set (default: 2048).")
     p.add_argument("--min-papers", type=int, default=50,
                    help="Minimum papers needed; exit 1 if fewer are available (default: 50).")
-    p.add_argument("--dim", type=int, default=64,
-                   help="Truncate embeddings to this many dimensions before projection (default: 64).")
+    p.add_argument("--dim", type=int, default=128,
+                   help="Truncate embeddings to this many dimensions before projection (default: 128).")
     p.add_argument("--n-neighbors", type=int, default=10,
                    help="PaCMAP n_neighbors parameter (default: 10).")
     p.add_argument("--seed", type=int, default=42,
