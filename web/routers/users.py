@@ -32,7 +32,7 @@ from web.dependencies import get_current_user, get_db
 
 router = APIRouter(prefix="/users/me", tags=["users"])
 
-_ADS_IMPORT_LIMIT = 64
+_ADS_INPUT_CAP = 64
 
 
 def _validate_arxiv_id(arxiv_id: str) -> str:
@@ -216,12 +216,7 @@ def import_ads(
     # Deduplicate while preserving order
     seen: set[str] = set()
     unique_ids = [aid for aid in found_ids if not (aid in seen or seen.add(aid))]  # type: ignore[func-returns-value]
-
-    if len(unique_ids) > _ADS_IMPORT_LIMIT:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Too many IDs ({len(unique_ids)}). Maximum is {_ADS_IMPORT_LIMIT} per import.",
-        )
+    unique_ids = unique_ids[:_ADS_INPUT_CAP]
 
     # Semantically validate each extracted ID; silently drop impossible ones.
     from arxiv_lib.arxiv_id import validate_arxiv_id

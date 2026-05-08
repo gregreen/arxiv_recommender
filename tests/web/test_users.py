@@ -185,13 +185,16 @@ class TestImportAds:
         assert data["skipped"] == 0
         assert data["rate_limited"] == 0
 
-    def test_too_many_ids_422(self, client):
-        """A single import payload containing more than 64 unique arXiv IDs
-        (the ADS import limit) should be rejected with 422 before any DB writes."""
-        # _ADS_IMPORT_LIMIT = 64; 65 unique IDs exceeds it
+    def test_too_many_ids_truncated(self, client):
+        """A payload with >64 unique arXiv IDs should be silently truncated to 64;
+        the request succeeds and the response accounts for daily-limit capping."""
+        # 65 unique IDs; only the first 64 should be considered
         ads_text = " ".join(f"arXiv:2309.{i:05d}" for i in range(1, 66))
         r = client.post("/api/users/me/papers/import/ads", json={"text": ads_text})
-        assert r.status_code == 422
+        assert r.status_code == 200
+        data = r.json()
+        assert data["imported"] + data["skipped"] + data["rate_limited"] <= 64
+        assert data["invalid"] == 0
 
     def test_bare_ids_imported(self, client, web_db):
         """IDs without the arXiv: prefix should also be accepted."""
