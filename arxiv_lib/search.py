@@ -29,7 +29,7 @@ from arxiv_lib.config import (
 from arxiv_lib.ingest import load_search_term_embedding, store_search_term_embedding
 
 _log = logging.getLogger(__name__)
-from arxiv_lib.recommend import _window_cutoff
+from arxiv_lib.recommend import NotEnoughDataError, _load_vectors, _window_cutoff, get_or_train_model
 
 # Instruct/Query prefix used when embedding search queries.
 # Matches the prefix used in experiments/query_summaries.py.
@@ -279,12 +279,25 @@ def lookup_paper_by_id(
     except Exception:
         authors = []
 
+    # Attempt on-the-fly scoring using the user's current model.
+    score: float | None = None
+    try:
+        model, _ = get_or_train_model(con, user_id)
+        vecs = _load_vectors([aid])
+        if aid in vecs:
+            v = vecs[aid].reshape(1, -1)
+            score = float(model.score_embeddings(v)[0])
+    except NotEnoughDataError:
+        pass  # User has too few liked papers — no model yet
+    except Exception:
+        _log.exception("lookup_paper_by_id: on-the-fly scoring failed for %s", aid)
+
     return {
         "arxiv_id":       aid,
         "title":          title or "",
         "authors":        authors,
         "published_date": published_date,
-        "score":          None,
+        "score":          score,
         "rank":           1,
         "liked":          liked,
         "generated_at":   None,
