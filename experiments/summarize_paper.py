@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 import sys
+import time
 
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _project_root not in sys.path:
@@ -139,6 +140,7 @@ def main() -> None:
     print(f"\nRequesting summary via {base_url} / {model} ...")
     client = OpenAI(base_url=base_url, api_key=api_key)
     try:
+        t0 = time.time()
         response = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -148,6 +150,8 @@ def main() -> None:
             max_tokens=16384,
             **completion_kwargs
         )
+        t1 = time.time()
+        print(f"Summary API call completed in {t1 - t0:.2f} seconds.")
         content = response.choices[0].message.content.strip()
         reasoning = getattr(response.choices[0].message, "reasoning", "").strip()
         # raw_response = response.choices[0].message.content.strip()
