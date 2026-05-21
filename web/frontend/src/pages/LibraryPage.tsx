@@ -196,36 +196,58 @@ export default function LibraryPage() {
               {addError}
             </div>
           )}
-          <form onSubmit={handleAdd} className="flex gap-2 flex-wrap">
+          <form onSubmit={handleAdd} className="flex gap-2">
             <input
               type="text"
               placeholder="arXiv ID (e.g. 2401.12345)"
               value={addArxivId}
               onChange={(e) => setAddArxivId(e.target.value)}
               required
-              className="border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1 min-w-48"
+              className="border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1 min-w-0"
             />
-            <select
-              value={addLiked}
-              onChange={(e) => setAddLiked(Number(e.target.value) as 1 | -1)}
-              className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none"
-            >
-              <option value={1}>Liked</option>
-              <option value={-1}>Disliked</option>
-            </select>
-            <button
-              type="submit"
-              disabled={addLoading}
-              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium rounded px-4 py-1.5 transition-colors"
-            >
-              {addLoading ? "Adding…" : "Add"}
-            </button>
+            <div className="flex gap-1 shrink-0">
+              <select
+                value={addLiked}
+                onChange={(e) => setAddLiked(Number(e.target.value) as 1 | -1)}
+                className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none"
+              >
+                <option value={1}>Liked</option>
+                <option value={-1}>Disliked</option>
+              </select>
+              <button
+                type="submit"
+                disabled={addLoading}
+                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded w-8 h-8 flex items-center justify-center shrink-0 transition-colors"
+              >
+                {addLoading ? (
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                )}
+              </button>
+            </div>
           </form>
         </section>
 
         {/* NASA ADS import */}
         <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-          <h2 className="font-semibold text-gray-800 mb-3">Import from NASA ADS</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-gray-800">Import from NASA ADS</h2>
+            <button
+              type="submit"
+              form="ads-import-form"
+              disabled={adsLoading}
+              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium rounded px-3 py-1 transition-colors"
+            >
+              {adsLoading ? "Importing…" : "Import"}
+            </button>
+          </div>
           <p className="text-xs text-gray-500 mb-2">
             Export an ADS library using the Custom %X format, and paste the contents below.
           </p>
@@ -243,24 +265,15 @@ export default function LibraryPage() {
               {adsResult}
             </div>
           )}
-          <form onSubmit={handleImport} className="flex flex-col gap-2">
+          <form id="ads-import-form" onSubmit={handleImport}>
             <textarea
               value={adsText}
               onChange={(e) => setAdsText(e.target.value)}
               rows={5}
               placeholder={"arXiv:1234.56789\narXiv:0123.45678\n..."}
               required
-              className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
             />
-            <div>
-              <button
-                type="submit"
-                disabled={adsLoading}
-                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium rounded px-4 py-1.5 transition-colors"
-              >
-                {adsLoading ? "Importing…" : "Import"}
-              </button>
-            </div>
           </form>
         </section>
         </div>{/* end top sections */}
