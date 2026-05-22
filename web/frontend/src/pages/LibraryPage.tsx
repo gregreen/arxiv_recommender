@@ -67,6 +67,9 @@ export default function LibraryPage() {
   const [adsError, setAdsError] = useState<string | null>(null);
   const [adsLoading, setAdsLoading] = useState(false);
 
+  // Import accordion
+  const [importOpen, setImportOpen] = useState(false);
+
   useEffect(() => {
     getMyPapers()
       .then(setPapers)
@@ -187,94 +190,117 @@ export default function LibraryPage() {
         <div className={`absolute inset-0 w-full overflow-y-auto flex flex-col bg-white transition-transform duration-300 ease-in-out
           md:relative md:w-96 md:min-w-0 md:shrink-0 md:border-r md:border-gray-200 md:translate-x-0
           ${selectedArxivId !== null ? "-translate-x-full" : "translate-x-0"}`}>
-        <div className="shrink-0 p-6 pb-0 space-y-6">
-        {/* Add paper */}
-        <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-          <h2 className="font-semibold text-gray-800 mb-3">Add Paper</h2>
-          {addError && (
-            <div className="mb-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2">
-              {addError}
-            </div>
-          )}
-          <form onSubmit={handleAdd} className="flex gap-2">
-            <input
-              type="text"
-              placeholder="arXiv ID (e.g. 2401.12345)"
-              value={addArxivId}
-              onChange={(e) => setAddArxivId(e.target.value)}
-              required
-              className="border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1 min-w-0"
-            />
-            <div className="flex gap-1 shrink-0">
-              <select
-                value={addLiked}
-                onChange={(e) => setAddLiked(Number(e.target.value) as 1 | -1)}
-                className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none"
-              >
-                <option value={1}>Liked</option>
-                <option value={-1}>Disliked</option>
-              </select>
-              <button
-                type="submit"
-                disabled={addLoading}
-                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded w-8 h-8 flex items-center justify-center shrink-0 transition-colors"
-              >
-                {addLoading ? (
-                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
-                ) : (
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
-                )}
-              </button>
-            </div>
-          </form>
-        </section>
-
-        {/* NASA ADS import */}
-        <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-gray-800">Import from NASA ADS</h2>
-            <button
-              type="submit"
-              form="ads-import-form"
-              disabled={adsLoading}
-              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium rounded px-3 py-1 transition-colors"
+        <div className="shrink-0 p-6 pb-0">
+        {/* Import papers accordion */}
+        <section className="bg-white rounded-lg shadow-sm border border-gray-200">
+          <button
+            type="button"
+            onClick={() => setImportOpen((o) => !o)}
+            className="w-full flex items-center justify-between px-4 py-3 text-left"
+          >
+            <span className="font-semibold text-gray-800">Import Papers</span>
+            <svg
+              className={`w-4 h-4 text-gray-500 transition-transform duration-200 ${importOpen ? "rotate-180" : ""}`}
+              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
             >
-              {adsLoading ? "Importing…" : "Import"}
-            </button>
-          </div>
-          <p className="text-xs text-gray-500 mb-2">
-            Export an ADS library using the Custom %X format, and paste the contents below.
-          </p>
-          {adsError && (
-            <div className="mb-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2">
-              {adsError}
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+
+          {importOpen && (
+            <div className="px-4 pb-4 space-y-4 border-t border-gray-200">
+              {/* Add by arXiv ID */}
+              <div className="pt-3">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Add by arXiv ID</h3>
+                {addError && (
+                  <div className="mb-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2">
+                    {addError}
+                  </div>
+                )}
+                <form onSubmit={handleAdd} className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="e.g. 2401.12345"
+                    value={addArxivId}
+                    onChange={(e) => setAddArxivId(e.target.value)}
+                    required
+                    className="border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1 min-w-0"
+                  />
+                  <div className="flex gap-1 shrink-0">
+                    <select
+                      value={addLiked}
+                      onChange={(e) => setAddLiked(Number(e.target.value) as 1 | -1)}
+                      className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none"
+                    >
+                      <option value={1}>Liked</option>
+                      <option value={-1}>Disliked</option>
+                    </select>
+                    <button
+                      type="submit"
+                      disabled={addLoading}
+                      className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded w-8 h-8 flex items-center justify-center shrink-0 transition-colors"
+                    >
+                      {addLoading ? (
+                        <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                          <line x1="12" y1="5" x2="12" y2="19" />
+                          <line x1="5" y1="12" x2="19" y2="12" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <hr className="border-gray-200" />
+
+              {/* Import from NASA ADS */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Import from NASA ADS</h3>
+                  <button
+                    type="submit"
+                    form="ads-import-form"
+                    disabled={adsLoading}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium rounded px-3 py-1 transition-colors"
+                  >
+                    {adsLoading ? "Importing…" : "Import"}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mb-2">
+                  Export an ADS library using the Custom %X format, and paste the contents below.
+                </p>
+                {adsError && (
+                  <div className="mb-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2">
+                    {adsError}
+                  </div>
+                )}
+                {adsResult && (
+                  <div className={`mb-2 text-sm rounded p-2 border ${
+                    adsHasWarning
+                      ? "text-amber-700 bg-amber-50 border-amber-200"
+                      : "text-green-700 bg-green-50 border-green-200"
+                  }`}>
+                    {adsResult}
+                  </div>
+                )}
+                <form id="ads-import-form" onSubmit={handleImport}>
+                  <textarea
+                    value={adsText}
+                    onChange={(e) => setAdsText(e.target.value)}
+                    rows={5}
+                    placeholder={"arXiv:1234.56789\narXiv:0123.45678\n..."}
+                    required
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                  />
+                </form>
+              </div>
             </div>
           )}
-          {adsResult && (
-            <div className={`mb-3 text-sm rounded p-2 border ${
-              adsHasWarning
-                ? "text-amber-700 bg-amber-50 border-amber-200"
-                : "text-green-700 bg-green-50 border-green-200"
-            }`}>
-              {adsResult}
-            </div>
-          )}
-          <form id="ads-import-form" onSubmit={handleImport}>
-            <textarea
-              value={adsText}
-              onChange={(e) => setAdsText(e.target.value)}
-              rows={5}
-              placeholder={"arXiv:1234.56789\narXiv:0123.45678\n..."}
-              required
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
-            />
-          </form>
         </section>
         </div>{/* end top sections */}
 
