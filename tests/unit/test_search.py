@@ -16,6 +16,8 @@ import arxiv_lib.ingest as ingest
 from arxiv_lib.config import (
     EMBEDDING_CACHE_DB,
     EMBEDDING_STORAGE_DIM,
+    QUERY_VECTOR_DIM,
+    RECOMMENDATION_EMBEDDING_DIM,
     SEARCH_EMBEDDING_DIM,
 )
 from arxiv_lib.ingest import store_search_term_embedding
@@ -23,6 +25,7 @@ from arxiv_lib.search import (
     SearchEmbeddingError,
     _cosine_similarity,
     _embed_query,
+    lookup_paper_by_id,
     search_papers,
 )
 
@@ -187,3 +190,104 @@ class TestSearchPapers:
             result = search_papers(app_db_con, user_id=1, query=_QUERY)
 
         assert all(v == [] for v in result.values())
+
+
+# ---------------------------------------------------------------------------
+# lookup_paper_by_id
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_model(*, has_query_vectors: bool) -> MagicMock:
+    model = MagicMock()
+    if has_query_vectors:
+        model.query_vectors = np.random.default_rng(0).standard_normal(
+            (3, QUERY_VECTOR_DIM)
+        ).astype(np.float32)
+    else:
+        model.query_vectors = None
+    model.score_embeddings.return_value = np.array([0.75], dtype=np.float32)
+    return model
+
+
+class TestLookupPaperById:
+    _AID = "2309.99999"
+    _REC_VEC = np.ones(RECOMMENDATION_EMBEDDING_DIM, dtype=np.float32)
+    _SEARCH_VEC = np.ones(QUERY_VECTOR_DIM, dtype=np.float32)
+
+    def _insert(self, con: sqlite3.Connection) -> None:
+        con.execute(
+            "INSERT OR IGNORE INTO papers (arxiv_id, title, authors, published_date) "
+            "VALUES (?, ?, ?, ?)",
+            (self._AID, "Test Paper", '["Author"]', date.today().isoformat()),
+        )
+        con.commit()
+
+    def test_returns_none_for_unknown_paper(self, app_db_con, data_dir):
+        result = lookup_paper_by_id(app_db_con, user_id=1, arxiv_id="9999.00000")
+        assert result is None
+
+    def test_score_is_none_when_no_model(self, app_db_con, data_dir):
+        """NotEnoughDataError → score field is None, paper is still returned."""
+        from arxiv_lib.recommend import NotEnoughDataError
+        self._insert(app_db_con)
+        with patch("arxiv_lib.search.get_or_train_model", side_effect=NotEnoughDataError):
+            result = lookup_paper_by_id(app_db_con, user_id=1, arxiv_id=self._AID)
+        assert result is not None
+        assert result["score"] is None
+
+    def test_scores_paper_without_query_vectors(self, app_db_con, data_dir):
+        """When model.query_vectors is None, score_embeddings is called without
+        query_vectors_for_papers and the returned score is stored on the paper."""
+        self._insert(app_db_con)
+        model = _make_mock_model(has_query_vectors=False)
+        rec_vecs = {self._AID: self._REC_VEC}
+
+        with (
+            patch("arxiv_lib.search.get_or_train_model", return_value=(model, None)),
+            patch("arxiv_lib.search._load_vectors", return_value=rec_vecs),
+        ):
+            result = lookup_paper_by_id(app_db_con, user_id=1, arxiv_id=self._AID)
+
+        model.score_embeddings.assert_called_once()
+        kwargs = model.score_embeddings.call_args.kwargs or {}
+        assert "query_vectors_for_papers" not in kwargs
+        assert result["score"] == pytest.approx(0.75)
+
+    def test_scores_paper_with_query_vectors(self, app_db_con, data_dir):
+        """When model.query_vectors is set, the search-space embedding is loaded
+        and forwarded as query_vectors_for_papers to avoid a cdist dimension mismatch."""
+        self._insert(app_db_con)
+        model = _make_mock_model(has_query_vectors=True)
+        rec_vecs = {self._AID: self._REC_VEC}
+        search_vecs = {self._AID: self._SEARCH_VEC}
+
+        with (
+            patch("arxiv_lib.search.get_or_train_model", return_value=(model, None)),
+            patch("arxiv_lib.search._load_vectors", return_value=rec_vecs),
+            patch("arxiv_lib.search._load_search_paper_vectors", return_value=search_vecs),
+        ):
+            result = lookup_paper_by_id(app_db_con, user_id=1, arxiv_id=self._AID)
+
+        model.score_embeddings.assert_called_once()
+        kwargs = model.score_embeddings.call_args.kwargs or {}
+        q_passed = kwargs.get("query_vectors_for_papers")
+        assert q_passed is not None
+        assert q_passed.shape == (1, QUERY_VECTOR_DIM)
+        assert result["score"] == pytest.approx(0.75)
+
+    def test_score_is_none_when_search_embedding_missing(self, app_db_con, data_dir):
+        """When model has query_vectors but the paper has no search embedding,
+        scoring is skipped (score=None) rather than crashing."""
+        self._insert(app_db_con)
+        model = _make_mock_model(has_query_vectors=True)
+        rec_vecs = {self._AID: self._REC_VEC}
+
+        with (
+            patch("arxiv_lib.search.get_or_train_model", return_value=(model, None)),
+            patch("arxiv_lib.search._load_vectors", return_value=rec_vecs),
+            patch("arxiv_lib.search._load_search_paper_vectors", return_value={}),
+        ):
+            result = lookup_paper_by_id(app_db_con, user_id=1, arxiv_id=self._AID)
+
+        model.score_embeddings.assert_not_called()
+        assert result["score"] is None

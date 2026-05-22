@@ -29,7 +29,7 @@ from arxiv_lib.config import (
 from arxiv_lib.ingest import load_search_term_embedding, store_search_term_embedding
 
 _log = logging.getLogger(__name__)
-from arxiv_lib.recommend import NotEnoughDataError, _load_vectors, _window_cutoff, get_or_train_model
+from arxiv_lib.recommend import NotEnoughDataError, _load_search_paper_vectors, _load_vectors, _window_cutoff, get_or_train_model
 
 # Instruct/Query prefix used when embedding search queries.
 # Matches the prefix used in experiments/query_summaries.py.
@@ -286,7 +286,13 @@ def lookup_paper_by_id(
         vecs = _load_vectors([aid])
         if aid in vecs:
             v = vecs[aid].reshape(1, -1)
-            score = float(model.score_embeddings(v)[0])
+            if model.query_vectors is not None:
+                search_vecs = _load_search_paper_vectors([aid])
+                if aid in search_vecs:
+                    q = search_vecs[aid].reshape(1, -1)
+                    score = float(model.score_embeddings(v, query_vectors_for_papers=q)[0])
+            else:
+                score = float(model.score_embeddings(v)[0])
     except NotEnoughDataError:
         pass  # User has too few liked papers — no model yet
     except Exception:
