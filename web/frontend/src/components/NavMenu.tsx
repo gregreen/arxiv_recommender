@@ -54,13 +54,6 @@ export default function NavMenu({ email, onLogout, adminMode = false }: NavMenuP
               Groups
             </Link>
             <Link
-              to="/explore"
-              onClick={() => setDesktopOpen(false)}
-              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              Explore
-            </Link>
-            <Link
               to="/account"
               onClick={() => setDesktopOpen(false)}
               className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
