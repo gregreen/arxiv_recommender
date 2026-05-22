@@ -85,43 +85,43 @@ def _make_model(n: int = 20) -> ScoringModel:
 # aggregate_group_scores
 # ---------------------------------------------------------------------------
 
+_ALL_METHODS = ["softmax_sum", "average"]
 
+
+@pytest.mark.parametrize("method", _ALL_METHODS)
 class TestAggregateGroupScores:
-    def test_empty_list_returns_empty(self):
+    def test_empty_list_returns_empty(self, method):
         """An empty member list produces an empty result."""
-        assert aggregate_group_scores([]) == {}
+        assert aggregate_group_scores([], method=method) == {}
 
-    def test_all_empty_dicts_returns_empty(self):
+    def test_all_empty_dicts_returns_empty(self, method):
         """A list of empty member dicts (no scores) produces an empty result."""
-        assert aggregate_group_scores([{}, {}, {}]) == {}
+        assert aggregate_group_scores([{}, {}, {}], method=method) == {}
 
-    def test_output_keys_are_union_of_inputs(self):
+    def test_output_keys_are_union_of_inputs(self, method):
         """Every paper that appears in at least one member's scores must appear
         in the output; no extra keys are added."""
         m1 = {"p1": -1.0, "p2": -2.0}
         m2 = {"p2": -0.5, "p3": -3.0}
         m3 = {"p1": -0.8, "p3": -1.5, "p4": -4.0}
-        result = aggregate_group_scores([m1, m2, m3])
+        result = aggregate_group_scores([m1, m2, m3], method=method)
         assert set(result.keys()) == {"p1", "p2", "p3", "p4"}
 
-    def test_all_output_values_in_valid_range(self):
-        """For every paper, math.log(v) must be <= 0 (up to a small epsilon for
-        float rounding).  Input scores are realistic log-probabilities in [-20, 0]."""
-        import math
+    def test_all_output_values_leq_zero(self, method):
+        """All output scores must be <= 0. Input scores are realistic
+        log-probabilities in [-20, 0]."""
         rng = np.random.default_rng(seed=42)
         paper_ids = [f"p{i}" for i in range(20)]
         members = [
             {aid: float(rng.uniform(-20.0, 0.0)) for aid in paper_ids}
             for _ in range(5)
         ]
-        result = aggregate_group_scores(members)
+        result = aggregate_group_scores(members, method=method)
         assert set(result.keys()) == set(paper_ids)
         for aid, v in result.items():
-            assert math.log(v) <= 1e-9, (
-                f"score for {aid!r} out of range: log({v}) = {math.log(v)}"
-            )
+            assert v <= 1e-9, f"score for {aid!r} out of range: {v}"
 
-    def test_consistent_ordering_preserved(self):
+    def test_consistent_ordering_preserved(self, method):
         """When every member ranks papers in the same order, the aggregated scores
         must preserve that consensus ranking.
 
@@ -133,19 +133,48 @@ class TestAggregateGroupScores:
         paper_ids = ["p0", "p1", "p2", "p3", "p4"]
         members = []
         for _ in range(4):
-            # pick lo < hi <= 0
             hi = float(rng.uniform(-2.0, 0.0))
             lo = float(rng.uniform(-20.0, hi - 0.1))
             raw = rng.uniform(lo, hi, size=5)
             scores = sorted(raw, reverse=True)  # largest first → p0 gets highest score
             members.append(dict(zip(paper_ids, scores)))
 
-        result = aggregate_group_scores(members)
+        result = aggregate_group_scores(members, method=method)
         ranked = sorted(paper_ids, key=lambda aid: result[aid], reverse=True)
         assert ranked == paper_ids, (
             f"Expected ordering p0>p1>p2>p3>p4, got {ranked}\n"
             f"Scores: { {aid: result[aid] for aid in paper_ids} }"
         )
+
+
+class TestAverageScoresSpecific:
+    def test_max_output_value_is_zero(self):
+        """The highest-scoring paper must receive a score of exactly 0.0."""
+        rng = np.random.default_rng(seed=42)
+        paper_ids = [f"p{i}" for i in range(10)]
+        members = [
+            {aid: float(rng.uniform(-20.0, 0.0)) for aid in paper_ids}
+            for _ in range(4)
+        ]
+        result = aggregate_group_scores(members, method="average")
+        assert max(result.values()) == pytest.approx(0.0)
+
+    def test_missing_paper_penalised(self):
+        """A paper seen by only one member ranks below a paper scored highly
+        by all members. A low background score drives score_min down so the
+        missing-member penalty is large enough to overcome a good single-member
+        score."""
+        m1 = {"p_all": -0.5, "p_one": -0.1, "background": -5.0}
+        m2 = {"p_all": -0.6}
+        m3 = {"p_all": -0.4}
+        result = aggregate_group_scores([m1, m2, m3], method="average")
+        assert result["p_all"] > result["p_one"], (
+            f"Expected p_all ({result['p_all']:.4f}) > p_one ({result['p_one']:.4f})"
+        )
+
+    def test_unknown_method_raises(self):
+        with pytest.raises(ValueError, match="Unknown aggregation method"):
+            aggregate_group_scores([{"p": -1.0}], method="bogus")
 
 
 # ---------------------------------------------------------------------------

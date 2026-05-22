@@ -26,6 +26,7 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
   const [onboarding, setOnboarding] = useState(false);
   const [groupMemberCount, setGroupMemberCount] = useState<number | null>(null);
   const [activeMemberCount, setActiveMemberCount] = useState<number | null>(null);
+  const [groupMethod, setGroupMethod] = useState<"softmax_sum" | "average">("softmax_sum");
 
   // Search state — committedQuery only updates on submit, never on keystroke,
   // so typing does not re-render the paper list.
@@ -43,7 +44,7 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
       setError(null);
       try {
         if (groupId != null) {
-          const data = await getGroupRecommendations(groupId, win);
+          const data = await getGroupRecommendations(groupId, win, groupMethod);
           setResults(data.results.map((r) => ({ ...r, onboarding: false })));
           setOnboarding(false);
           setGroupMemberCount(data.group_member_count);
@@ -63,12 +64,13 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
         setLoading(false);
       }
     },
-    [groupId],
+    [groupId, groupMethod],
   );
 
-  // Clear search when switching group context
+  // Clear search and reset method when switching group context
   useEffect(() => {
     clearSearch();
+    setGroupMethod("softmax_sum");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId]);
 
@@ -268,8 +270,18 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
 
         {/* Group member coverage (group mode only) */}
         {!isSearchActive && groupId != null && activeMemberCount != null && groupMemberCount != null && (
-          <div className="text-xs text-gray-400 mb-2">
-            {activeMemberCount} of {groupMemberCount} member{groupMemberCount !== 1 ? "s" : ""} have enough data
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-gray-400">
+              {activeMemberCount} of {groupMemberCount} member{groupMemberCount !== 1 ? "s" : ""} have enough data.
+            </span>
+            <select
+              value={groupMethod}
+              onChange={(e) => setGroupMethod(e.target.value as "softmax_sum" | "average")}
+              className="border border-gray-200 rounded px-1.5 py-0.5 text-xs text-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            >
+              <option value="softmax_sum">Voting</option>
+              <option value="average">Consensus</option>
+            </select>
           </div>
         )}
 

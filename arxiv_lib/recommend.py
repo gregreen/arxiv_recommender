@@ -806,7 +806,58 @@ def _softmax_sum(member_scores: list[dict[str, float]]) -> dict[str, float]:
     norm = np.exp(ln_norm)
 
     # Average over active members
-    return {aid: v * norm for aid, v in group.items()}
+    return {aid: math.log(v * norm) for aid, v in group.items()}
+
+
+def _average_scores(member_scores: list[dict[str, float]]) -> dict[str, float]:
+    """
+    Aggregate per-member score dicts using averaging.
+
+    This is the equivalent of multiplying the probabilities and taking the
+    nth root, where n is the number of members. This reduction is more
+    consensus-oriented than softmax_sum, as a single low score from one member
+    will tend to pull the average down more than in softmax_sum.
+
+    Parameters
+    ----------
+    member_scores : list[dict[str, float]]
+        One dict per active member mapping arxiv_id → ln-probability score.
+        Empty dicts (members with no cached scores) are silently skipped.
+
+    Returns
+    -------
+    dict[str, float]
+        Aggregated score per paper (higher = more relevant to the group).
+    """
+    active = [s for s in member_scores if s]
+    if not active:
+        return {}
+
+    group: dict[str, float] = {}
+    n = {} # Number of members that scored each paper
+    score_min = 0 # Minimum score seen across all members and papers
+    for scores in active:
+        vals = np.array(list(scores.values()))
+        for aid in scores:
+            n[aid] = n.get(aid, 0) + 1
+            group[aid] = group.get(aid, 0.0) + scores[aid]
+            score_min = min(score_min, scores[aid])
+    
+    # Calculate maximum number of members who scored any paper
+    n_max = max(n.values()) if n else 0
+
+    # Fill in missing member scores (up to n_max) with minimum score seen
+    for aid in group:
+        missing = n_max - n.get(aid, 0)
+        group[aid] += missing * score_min
+    
+    # Normalize each paper by the number of members who scored any paper
+    norm = 1 / n_max if n_max > 0 else 1
+    offset = max(group.values()) if group else 0
+    for aid in group:
+        group[aid] = (group[aid] - offset) * norm
+    
+    return group
 
 
 def aggregate_group_scores(
@@ -824,7 +875,7 @@ def aggregate_group_scores(
     member_scores : list[dict[str, float]]
         One dict per active member mapping arxiv_id → score.
     method : str
-        Aggregation method.  Currently supported: ``"softmax_sum"``.
+        Aggregation method. Currently supported: ``"softmax_sum"`` and ``"average"``.
 
     Returns
     -------
@@ -838,6 +889,8 @@ def aggregate_group_scores(
     """
     if method == "softmax_sum":
         return _softmax_sum(member_scores)
+    if method == "average":
+        return _average_scores(member_scores)
     raise ValueError(f"Unknown aggregation method: {method!r}")
 
 
@@ -960,7 +1013,7 @@ def get_group_recommendations(
             "title":          row[1] if row else "",
             "authors":        json.loads(row[2]) if row and row[2] else [],
             "published_date": row[3] if row else None,
-            "score":          math.log(aggregated[aid]),
+            "score":          aggregated[aid],
             "rank":           rank,
             "liked":          row[4] if row else None,
             "generated_at":   None,  # aggregated on-the-fly, not from a cache timestamp
