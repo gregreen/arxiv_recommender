@@ -1,13 +1,114 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { QRCodeSVG } from "qrcode.react";
 import AppNav from "../components/AppNav";
 import MathText from "../components/MathText";
+import PaperRow from "../components/PaperRow";
 import { useTour } from "../contexts/TourContext";
 import { useAuth } from "../AuthContext";
+import type { Recommendation } from "../api/types";
 
 // ---------------------------------------------------------------------------
 // Demo content: LaTeX excerpt and its structured summary
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Static demo data for the Tutorial page
+// ---------------------------------------------------------------------------
+
+const DEMO_PAPERS: Recommendation[] = [
+  {
+    arxiv_id: "1706.03762",
+    title: "Attention Is All You Need",
+    authors: ["Ashish Vaswani", "Noam Shazeer", "Niki Parmar", "Jakob Uszkoreit", "Llion Jones", "Aidan N. Gomez", "Łukasz Kaiser", "Illia Polosukhin"],
+    published_date: "2017-06-12T00:00:00",
+    score: -0.01,
+    rank: 1,
+    liked: null,
+    generated_at: null,
+  },
+  {
+    arxiv_id: "astro-ph/9805200",
+    title: "Observational Evidence from Supernovae for an Accelerating Universe and a Cosmological Constant",
+    authors: ["Adam G. Riess", "Alexei V. Filippenko", "Peter Challis", "Alejandro Clocchiatti", "Alan Diercks", "Peter M. Garnavich", "Ron L. Gilliland", "Craig J. Hogan", "Saurabh Jha", "Robert P. Kirshner", "B. Leibundgut", "M. M. Phillips", "David Reiss", "Brian P. Schmidt", "Robert A. Schommer", "R. Chris Smith", "Jason Spyromilio", "Christopher Stubbs", "Nicholas B. Suntzeff", "John Tonry"],
+    published_date: "1998-05-15T00:00:00",
+    score: -0.3,
+    rank: 2,
+    liked: null,
+    generated_at: null,
+  },
+  {
+    arxiv_id: "astro-ph/9812133",
+    title: "Measurements of \\Omega and \\Lambda from 42 High-Redshift Supernovae",
+    authors: ["S. Perlmutter", "G. Aldering", "G. Goldhaber", "R. A. Knop", "P. Nugent", "P. G. Castro", "S. Deustua", "S. Fabbro", "A. Goobar", "D. E. Groom", "I. M. Hook", "A. G. Kim", "M. Y. Kim", "J. C. Lee", "N. J. Nunes", "R. Pain", "C. R. Pennypacker", "R. Quimby", "C. Lidman", "R. S. Ellis", "M. Irwin", "R. G. McMahon", "P. Ruiz-Lapuente", "N. Walton", "B. Schaefer", "B. J. Boyle", "A. V. Filippenko", "T. Matheson", "A. S. Fruchter", "N. Panagia", "H. J. M. Newberg", "W. J. Couch"],
+    published_date: "1998-12-08T00:00:00",
+    score: -0.7,
+    rank: 3,
+    liked: null,
+    generated_at: null,
+  },
+  {
+    arxiv_id: "astro-ph/9710327",
+    title: "Maps of Dust Infrared Emission for Use in Estimation of Cosmic Microwave Background Radiation Foregrounds and Cosmic Fabric Constants",
+    authors: ["David J. Schlegel", "Douglas P. Finkbeiner", "Marc Davis"],
+    published_date: "1997-10-12T00:00:00",
+    score: -1.0,
+    rank: 4,
+    liked: null,
+    generated_at: null,
+  },
+  {
+    arxiv_id: "1810.04805",
+    title: "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+    authors: ["Jacob Devlin", "Ming-Wei Chang", "Kenton Lee", "Kristina Toutanova"],
+    published_date: "2018-10-11T00:00:00",
+    score: -1.5,
+    rank: 5,
+    liked: null,
+    generated_at: null,
+  },
+];
+const DUST_PAPERS: Recommendation[] = [
+  {
+    arxiv_id: "astro-ph/9710327",
+    title: "Maps of Dust Infrared Emission for Use in Estimation of Cosmic Microwave Background Radiation Foregrounds and Cosmic Fabric Constants",
+    authors: ["David J. Schlegel", "Douglas P. Finkbeiner", "Marc Davis"],
+    published_date: "1997-10-12T00:00:00",
+    score: -0.2,
+    rank: 1,
+    liked: null,
+    generated_at: null,
+  },
+  {
+    arxiv_id: "astro-ph/0608003",
+    title: "Infrared Emission from Interstellar Dust. IV. The Silicate-Graphite-PAH Model",
+    authors: ["B. T. Draine", "Aigen Li"],
+    published_date: "2006-08-01T00:00:00",
+    score: -0.8,
+    rank: 2,
+    liked: null,
+    generated_at: null,
+  },
+  {
+    arxiv_id: "astro-ph/0304489",
+    title: "Interstellar Dust Grains",
+    authors: ["B. T. Draine"],
+    published_date: "2003-04-28T00:00:00",
+    score: -1.5,
+    rank: 3,
+    liked: null,
+    generated_at: null,
+  },
+  {
+    arxiv_id: "astro-ph/9809387",
+    title: "Correcting for the Influence of the Milky Way on Extragalactic Distance Determinations",
+    authors: ["Edward L. Fitzpatrick"],
+    published_date: "1998-09-27T00:00:00",
+    score: -3.0,
+    rank: 4,
+    liked: null,
+    generated_at: null,
+  },
+];
 const LATEX_EXCERPT = `...
 
 \\title{Observational Evidence from Supernovae for an Accelerating Universe and a Cosmological Constant \\
@@ -74,6 +175,206 @@ function SummaryPanel() {
           </p>
         );
       })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Static recommendations demo widget (used in Tutorial page)
+// ---------------------------------------------------------------------------
+
+const WINDOWS = ["Day", "Week", "Month"] as const;
+
+interface StaticRecsDemoProps {
+  papers?: Recommendation[];
+  activeTab?: "Day" | "Week" | "Month";
+  groupName?: string;
+  showGroupMethod?: boolean;
+}
+
+function StaticRecsDemo({ papers = DEMO_PAPERS, activeTab = "Week", groupName, showGroupMethod }: StaticRecsDemoProps) {
+  return (
+    <div className="pointer-events-none select-none border border-gray-200 rounded-lg shadow-sm overflow-hidden bg-white">
+      {/* Group switcher (only when groupName is provided) */}
+      {groupName && (
+        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-200 bg-white">
+          <span className="px-3 py-1 rounded text-sm font-medium whitespace-nowrap bg-gray-100 text-gray-600">Personal</span>
+          <span className="px-3 py-1 rounded text-sm font-medium whitespace-nowrap bg-blue-600 text-white">{groupName}</span>
+        </div>
+      )}
+      {/* Tab bar */}
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-100 bg-gray-50">
+        <div className="flex gap-1">
+          {WINDOWS.map((w) => (
+            <span
+              key={w}
+              className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
+                w === activeTab
+                  ? "bg-blue-600 text-white"
+                  : "text-gray-500 bg-white border border-gray-200"
+              }`}
+            >
+              {w}
+            </span>
+          ))}
+        </div>
+        {/* Icon buttons (cosmetic) */}
+        <div className="flex items-center gap-1.5 text-gray-300">
+          <span className="p-1 rounded">
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            </svg>
+          </span>
+          <span className="p-1 rounded">
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </span>
+        </div>
+      </div>
+      {/* Paper list */}
+      <div className="p-3">
+        {showGroupMethod && (
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-gray-400">4 of 4 members active</span>
+            <span className="border border-gray-200 rounded px-1.5 py-0.5 text-xs text-gray-500">Voting</span>
+          </div>
+        )}
+        {papers.map((paper) => (
+          <PaperRow key={paper.arxiv_id} rec={paper} selected={false} onClick={() => {}} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Static group creation + invite demo widget
+// ---------------------------------------------------------------------------
+
+const FAKE_INVITE_URL = "https://arxiv-recommender.example/join-group?token=abc123XYZ";
+
+function StaticGroupDemo() {
+  return (
+    <div className="pointer-events-none select-none space-y-3">
+      {/* Create-group card */}
+      <div className="bg-white border border-gray-200 rounded-lg px-6 py-5 space-y-3">
+        <h3 className="text-sm font-semibold text-gray-700">Create a group</h3>
+        <div className="flex gap-2">
+          <span className="flex-1 border border-blue-400 ring-1 ring-blue-200 rounded px-3 py-2 text-sm text-gray-700">
+            Dust enthusiasts
+          </span>
+          <span className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded">
+            Create group
+          </span>
+        </div>
+      </div>
+      {/* Invite row */}
+      <div className="bg-white border border-gray-200 rounded-lg px-4 py-4 space-y-2">
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">Share an invite link</h3>
+        <div className="flex flex-col bg-gray-50 border border-gray-200 rounded px-3 py-2 gap-2">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs text-gray-500 truncate flex-1">{FAKE_INVITE_URL}</span>
+            <span className="text-xs text-gray-400 shrink-0">10 uses left</span>
+            <span className="text-xs text-gray-400 shrink-0">exp 01/06/2026</span>
+            <span className="shrink-0 text-xs px-2 py-1 rounded bg-blue-600 text-white">Copy</span>
+            <span className="shrink-0 text-xs px-2 py-1 rounded bg-blue-100 text-blue-700">QR</span>
+            <span className="shrink-0 text-xs px-2 py-1 rounded bg-gray-200 text-gray-600">Revoke</span>
+          </div>
+          <div className="flex justify-center py-2">
+            <QRCodeSVG value={FAKE_INVITE_URL} size={140} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Static library import demo widget
+// ---------------------------------------------------------------------------
+
+function StaticLibraryImportDemo() {
+  return (
+    <div className="pointer-events-none select-none border border-gray-200 rounded-lg shadow-sm overflow-hidden bg-white">
+      {/* Accordion header (open state) */}
+      <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-gray-100">
+        <span className="text-sm font-medium text-gray-700">Import papers</span>
+        <svg className="w-4 h-4 text-gray-500 rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </div>
+      {/* Accordion body */}
+      <div className="px-4 py-4 space-y-5">
+        {/* Add by arXiv ID */}
+        <div>
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Add by arXiv ID</h3>
+          <div className="flex items-center gap-2">
+            <span className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-xs text-gray-700">astro-ph/9710327</span>
+            <span className="border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-600">Liked</span>
+            <span className="w-8 h-8 flex items-center justify-center bg-blue-600 text-white rounded text-lg font-bold leading-none">+</span>
+          </div>
+        </div>
+        {/* Bulk import */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Import from NASA ADS</h3>
+            <span className="bg-blue-600 text-white text-xs font-medium rounded px-3 py-1">Import</span>
+          </div>
+          <p className="text-xs text-gray-500 mb-2">
+            Export an ADS library using the Custom %X format, and paste the contents below.
+          </p>
+          <div className="w-full border border-gray-300 rounded px-3 py-2 text-sm text-gray-500 font-mono leading-relaxed whitespace-pre-wrap bg-white">
+            {"arXiv:astro-ph/9710327\narXiv:astro-ph/0608003\narXiv:astro-ph/0304489\narXiv:astro-ph/9809387"}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Static paper detail header demo widget
+// ---------------------------------------------------------------------------
+
+function StaticPaperDetailDemo() {
+  // Hardcoded values for "Attention Is All You Need", score = -0.010, liked = 1
+  // scoreBar(-0.01) → hue ≈ 120 (green)
+  const hue = 120;
+  return (
+    <div className="pointer-events-none select-none border border-gray-200 rounded-lg shadow-sm bg-white p-6">
+      <div className="flex items-start justify-between gap-4 mb-2">
+        <h2 className="text-[23px] font-semibold text-gray-900 leading-snug">
+          Attention Is All You Need
+        </h2>
+        <span
+          className="text-xs font-mono whitespace-nowrap mt-1 shrink-0 px-2 py-0.5 rounded-md"
+          style={{
+            color: `hsl(${hue}, 70%, 35%)`,
+            backgroundColor: `hsla(${hue}, 75%, 50%, 0.1)`,
+            border: `1px solid hsla(${hue}, 70%, 45%, 0.5)`,
+          }}
+        >
+          -0.010
+        </span>
+      </div>
+      <div className="text-base text-gray-500 mb-1">
+        Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones et al.
+      </div>
+      <div className="text-base text-gray-400 mb-4">2017-06-12 @ 00:00:00 UTC</div>
+      <div className="flex gap-2 mb-4">
+        <span className="px-3 py-1.5 rounded text-sm font-medium bg-green-600 text-white">
+          👍 Relevant
+        </span>
+        <span className="px-3 py-1.5 rounded text-sm font-medium bg-gray-100 text-gray-700">
+          👎 Not Relevant
+        </span>
+        <span className="px-3 py-1.5 rounded text-sm bg-blue-50 text-blue-700">
+          arXiv:1706.03762 ↗
+        </span>
+      </div>
     </div>
   );
 }
@@ -202,10 +503,11 @@ function TutorialContent() {
           The <Link to="/" className="text-blue-600 hover:underline">Recommendations</Link> page shows
           papers from the last day, week and month, ordered by their predicted relevance to your interests.
         </p>
+        <StaticRecsDemo />
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-gray-800">Training the model</h2>
+        <h2 className="text-lg font-semibold text-gray-800">Training the recommendation model</h2>
         <p className="text-base leading-relaxed">
           These recommendations are based on the papers you have previously marked as{" "}
           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-sm font-medium bg-green-600 text-white">👍 relevant</span>{" "}
@@ -226,6 +528,7 @@ function TutorialContent() {
             directly import relevant papers by entering their arXiv IDs.
           </li>
         </ol>
+        <StaticPaperDetailDemo />
         <p className="text-base leading-relaxed">
           Once you have liked a few papers, the{" "}
           <Link to="/" className="text-blue-600 hover:underline">Recommendations</Link>{" "}
@@ -257,6 +560,7 @@ function TutorialContent() {
           to create user groups that will aggregate recommendations. After creating a group, you can
           generate invite links and QR codes that you can send to other users.
         </p>
+        <StaticGroupDemo />
         <p className="text-base leading-relaxed">
           After you join or create a group, you will see that group's name on the{" "}
           <Link to="/" className="text-blue-600 hover:underline">Recommendations</Link> page.
@@ -271,6 +575,7 @@ function TutorialContent() {
           largest number of interested group members. The "consensus" method tends to surface papers that
           all group members are interested in.
         </p>
+        <StaticRecsDemo groupName="Dust enthusiasts" showGroupMethod papers={DUST_PAPERS} />
       </section>
 
       <section className="space-y-3">
@@ -281,6 +586,7 @@ function TutorialContent() {
           papers (by arXiv ID) that you find relevant. You can either add papers one-by-one by arXiv ID,
           or import them in bulk from a list of arXiv IDs.
         </p>
+        <StaticLibraryImportDemo />
         <p className="text-base leading-relaxed">
           If you want to import a list of papers from a{" "}
           <a href="https://ui.adsabs.harvard.edu" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">NASA ADS</a>{" "}
