@@ -167,9 +167,10 @@ export function TourProvider({ children }: { children: ReactNode }) {
     (data: EventData, controls: Controls) => {
       const { type, index, action } = data;
 
-      // Tour fully ended or skipped — mark tutorial shown.
+      // Tour fully ended or skipped — mark tutorial shown and return to recommendations.
       if (type === EVENTS.TOUR_END) {
         setTutorialShownRef.current().catch(() => {});
+        navigate("/");
         return;
       }
 
