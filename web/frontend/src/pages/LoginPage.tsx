@@ -22,8 +22,8 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(email, password);
-      const data = await apiFetch<{ user_id: number; email: string; is_admin: boolean }>("/api/auth/me");
-      setUser({ userId: data.user_id, email: data.email, isAdmin: data.is_admin });
+      const data = await apiFetch<{ user_id: number; email: string; is_admin: boolean; tutorial_shown: boolean }>("/api/auth/me");
+      setUser({ userId: data.user_id, email: data.email, isAdmin: data.is_admin, tutorialShown: data.tutorial_shown });
       const next = searchParams.get("next");
       navigate(next && next.startsWith("/") ? next : "/");
     } catch (err: unknown) {
