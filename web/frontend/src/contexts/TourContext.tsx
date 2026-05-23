@@ -20,6 +20,8 @@ interface TourStep {
   placement?: "top" | "bottom" | "left" | "right" | "auto";
   title?: string;
   route: string;
+  floatingOptions?: Record<string, unknown>;
+  spotlightTarget?: string;
 }
 
 interface TourState {
@@ -76,12 +78,16 @@ export function TourProvider({ children }: { children: ReactNode }) {
 
     const list: TourStep[] = [
       {
-        target: "#tour-recs-list",
+        // Anchor the tooltip to the tab bar (small element, placement: bottom
+        // puts tooltip below it into the visible list area on all screen sizes)
+        // while spotlighting the full recommendations list.
+        target: "#tour-time-tabs",
+        spotlightTarget: "#tour-recs-list",
         title: "Your recommendations",
         content: hasRealRecs
           ? "Papers recommended for you based on your library. The more papers you like, the better these get."
           : "Once you mark papers here as relevant or add papers to your library, personalised recommendations will appear here.",
-        placement: "right",
+        placement: "bottom",
         route: "/",
       },
       {
@@ -143,11 +149,13 @@ export function TourProvider({ children }: { children: ReactNode }) {
 
   const joyrideSteps = useMemo(
     () =>
-      steps.map(({ target, content, title, placement }) => ({
+      steps.map(({ target, content, title, placement, floatingOptions, spotlightTarget }) => ({
         target,
         content,
         title,
         placement: placement ?? "auto",
+        ...(floatingOptions ? { floatingOptions } : {}),
+        ...(spotlightTarget ? { spotlightTarget } : {}),
       })),
     [steps]
   );
