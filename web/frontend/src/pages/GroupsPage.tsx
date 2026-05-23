@@ -62,7 +62,7 @@ export default function GroupsPage() {
           </div>
         )}
 
-        <div className="bg-white border border-gray-200 rounded-lg px-6 py-5">
+        <div id="tour-create-group" className="bg-white border border-gray-200 rounded-lg px-6 py-5">
           <h2 className="text-base font-semibold text-gray-800 mb-4">Create a new group</h2>
           <form onSubmit={handleCreate} className="flex flex-col gap-3">
             <input

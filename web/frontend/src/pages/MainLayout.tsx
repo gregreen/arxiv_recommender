@@ -69,7 +69,7 @@ export default function MainLayout() {
           ${selectedArxivId !== null ? "-translate-x-full" : "translate-x-0"}`}>
           {/* Group/personal switcher — only shown when user is in at least one group */}
           {groups.length > 0 && (
-            <div className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-200 bg-white shrink-0 overflow-x-auto">
+            <div id="tour-group-switcher" className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-200 bg-white shrink-0 overflow-x-auto">
               <button
                 onClick={() => setActiveGroupId(null)}
                 className={`px-3 py-1 rounded text-sm font-medium whitespace-nowrap transition-colors ${

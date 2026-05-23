@@ -5,8 +5,10 @@ import type { Paper } from "../api/types";
 import MathText from "../components/MathText";
 import AppNav from "../components/AppNav";
 import PaperDetail from "../components/PaperDetail";
+import { useTour } from "../contexts/TourContext";
 
 export default function LibraryPage() {
+  const { openImportAccordion, clearImportAccordion } = useTour();
   const [papers, setPapers] = useState<UserPaper[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +71,14 @@ export default function LibraryPage() {
 
   // Import accordion
   const [importOpen, setImportOpen] = useState(false);
+
+  // Open accordion when tour requests it
+  useEffect(() => {
+    if (openImportAccordion) {
+      setImportOpen(true);
+      clearImportAccordion();
+    }
+  }, [openImportAccordion, clearImportAccordion]);
 
   useEffect(() => {
     getMyPapers()
@@ -192,7 +202,7 @@ export default function LibraryPage() {
           ${selectedArxivId !== null ? "-translate-x-full" : "translate-x-0"}`}>
         <div className="shrink-0 p-6 pb-0">
         {/* Import papers accordion */}
-        <section className="bg-white rounded-lg shadow-sm border border-gray-200">
+        <section id="tour-import-accordion" className="bg-white rounded-lg shadow-sm border border-gray-200">
           <button
             type="button"
             onClick={() => setImportOpen((o) => !o)}
@@ -219,6 +229,7 @@ export default function LibraryPage() {
                 )}
                 <form onSubmit={handleAdd} className="flex gap-2">
                   <input
+                    id="tour-arxiv-input"
                     type="text"
                     placeholder="e.g. 2401.12345"
                     value={addArxivId}

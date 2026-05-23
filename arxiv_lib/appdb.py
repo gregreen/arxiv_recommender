@@ -237,6 +237,7 @@ def init_app_db(path: str = APP_DB_PATH()) -> None:
             "ALTER TABLE users ADD COLUMN password_reset_token_expires_at TEXT",
             "ALTER TABLE group_invites ADD COLUMN remaining_uses INTEGER NOT NULL DEFAULT 1",
             "ALTER TABLE task_queue ADD COLUMN not_before TEXT",
+            "ALTER TABLE users ADD COLUMN tutorial_shown INTEGER NOT NULL DEFAULT 0",
         ]:
             try:
                 con.execute(stmt)

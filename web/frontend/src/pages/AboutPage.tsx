@@ -1,6 +1,8 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
 import AppNav from "../components/AppNav";
 import MathText from "../components/MathText";
+import { useTour } from "../contexts/TourContext";
+import { useAuth } from "../AuthContext";
 
 // ---------------------------------------------------------------------------
 // Demo content: LaTeX excerpt and its structured summary
@@ -173,8 +175,27 @@ function HowItWorksContent() {
 // ---------------------------------------------------------------------------
 
 function TutorialContent() {
+  const { startTour } = useTour();
+  const { user } = useAuth();
   return (
     <div className="space-y-8 text-gray-700 max-w-2xl">
+      <h1 className="text-2xl font-bold text-gray-900">Tutorial</h1>
+      {user && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold text-gray-800">Interactive tour</h2>
+          <p className="text-base leading-relaxed">
+            Want a quick guided walkthrough? The tour highlights the key features across several pages.
+          </p>
+          <button
+            type="button"
+            onClick={startTour}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded transition-colors"
+          >
+            Start tour
+          </button>
+        </section>
+      )}
+
       <section className="space-y-3">
         <h2 className="text-lg font-semibold text-gray-800">Recommendations</h2>
         <p className="text-base leading-relaxed">
