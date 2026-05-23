@@ -32,7 +32,7 @@ export default function AppNav() {
         <>
           <Link to="/library" className="text-sm text-gray-600 hover:text-gray-900">Library</Link>
           <Link to="/explore" className="hidden md:inline text-sm text-gray-600 hover:text-gray-900">Explore</Link>
-          <Link to="/about" className="hidden md:inline text-sm text-gray-600 hover:text-gray-900">About</Link>
+          <Link to="/about/tutorial" className="hidden md:inline text-sm text-gray-600 hover:text-gray-900">About</Link>
           <NavMenu email={user.email} onLogout={handleLogout} />
         </>
       ) : (

@@ -113,6 +113,7 @@ export default function App() {
             <Route path="groups"  element={<AdminGroupsPage />} />
           </Route>
           <Route path="/about" element={<AboutPage />} />
+          <Route path="/about/:tab" element={<AboutPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </GroupsProvider>
