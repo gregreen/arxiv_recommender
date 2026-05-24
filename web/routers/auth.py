@@ -310,7 +310,24 @@ def me(user=Depends(get_current_user)):
         "email": user["email"],
         "is_admin": bool(user["is_admin"]),
         "email_verified": bool(user["email_verified"]),
+        "tutorial_shown": bool(user["tutorial_shown"]),
     }
+
+
+class PatchMeRequest(BaseModel):
+    tutorial_shown: bool
+
+
+@router.patch("/me", status_code=status.HTTP_200_OK)
+def patch_me(
+    body: PatchMeRequest,
+    db: sqlite3.Connection = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    if body.tutorial_shown:
+        db.execute("UPDATE users SET tutorial_shown = 1 WHERE id = ?", (user["id"],))
+        db.commit()
+    return {"ok": True}
 
 
 @router.post("/forgot-password", status_code=status.HTTP_200_OK)

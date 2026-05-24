@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { GroupsProvider } from "./contexts/GroupsContext";
+import { TourProvider } from "./contexts/TourContext";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
@@ -39,6 +40,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <GroupsProvider>
+        <TourProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
@@ -116,6 +118,7 @@ export default function App() {
           <Route path="/about/:tab" element={<AboutPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </TourProvider>
       </GroupsProvider>
     </BrowserRouter>
   );
