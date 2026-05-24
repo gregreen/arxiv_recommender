@@ -298,9 +298,10 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
         )}
 
         {/* Paper list */}
-        {displayResults.map((rec) => (
+        {displayResults.map((rec, i) => (
           <PaperRow
             key={rec.arxiv_id}
+            id={i === 0 ? "tour-paper-list-first" : undefined}
             rec={{ ...rec, liked: likedCache[rec.arxiv_id] ?? rec.liked }}
             selected={rec.arxiv_id === selectedArxivId}
             onClick={() => onSelect(rec.arxiv_id, rec.liked, rec.score)}

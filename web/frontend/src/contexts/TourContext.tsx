@@ -142,6 +142,13 @@ export function TourProvider({ children }: { children: ReactNode }) {
 
     list.push(
       {
+        target: "#tour-paper-list-first",
+        title: "Opening a paper",
+        content: "Click on any paper to see more details about it.",
+        placement: "right",
+        route: "/",
+      },
+      {
         target: "#tour-paper-like-buttons",
         title: "Like or dislike papers",
         content: "Rate a paper as 👍 Relevant or 👎 Not Relevant. Your ratings train the recommendation engine — the more papers you rate, the better your recommendations become.",
@@ -383,17 +390,20 @@ export function TourProvider({ children }: { children: ReactNode }) {
     const idx = pendingResumeAfterPaperRef.current;
     if (idx === null) return;
     pendingResumeAfterPaperRef.current = null;
+    // Bind to a number-typed const so TypeScript doesn't lose narrowing inside
+    // the tryStart closure (closures can outlive the null-guard scope).
+    const stepIdx: number = idx;
     // Poll until the step's target element is present in the DOM (handles the
     // race between React re-rendering paper content and joyride searching for
     // the target), then start the tour.
-    const target = stepsRef.current[idx]?.target;
+    const target = stepsRef.current[stepIdx]?.target;
     function tryStart(retriesLeft: number) {
       if (!target || typeof target !== "string" || document.querySelector(target)) {
-        setTimeout(() => controlsRef.current.start(idx), 50);
+        setTimeout(() => controlsRef.current.start(stepIdx), 50);
         return;
       }
       if (retriesLeft <= 0) {
-        controlsRef.current.start(idx); // give up waiting; let TARGET_NOT_FOUND handle it
+        controlsRef.current.start(stepIdx); // give up waiting; let TARGET_NOT_FOUND handle it
         return;
       }
       setTimeout(() => tryStart(retriesLeft - 1), 100);

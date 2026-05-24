@@ -8,9 +8,10 @@ interface PaperRowProps {
   rec: Recommendation;
   selected: boolean;
   onClick: () => void;
+  id?: string;
 }
 
-function PaperRow({ rec, selected, onClick }: PaperRowProps) {
+function PaperRow({ rec, selected, onClick, id }: PaperRowProps) {
   const scored = rec.score != null;
   const { pct, color } = scored ? scoreBar(rec.score!) : { pct: 0, color: "#d1d5db" };
 
@@ -22,6 +23,7 @@ function PaperRow({ rec, selected, onClick }: PaperRowProps) {
 
   return (
     <div
+      id={id}
       onClick={onClick}
       className={`cursor-pointer border rounded p-3 mb-1.5 hover:border-blue-300 transition-colors ${likedClass}`}
     >
