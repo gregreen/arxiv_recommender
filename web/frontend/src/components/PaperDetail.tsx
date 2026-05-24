@@ -126,7 +126,7 @@ export default function PaperDetail({ arxivId, initialLiked, score, onLikedChang
       <div className="text-base text-gray-500 mb-1">{authorStr}</div>
       <div className="text-base text-gray-400 mb-4">{formatTimestamp(paper.published_date)}</div>
 
-      <div className="flex gap-2 mb-4">
+      <div id="tour-paper-like-buttons" className="flex gap-2 mb-4">
         <button
           onClick={() => handleRate(liked === 1 ? 0 : 1)}
           disabled={saving}
@@ -183,7 +183,7 @@ export default function PaperDetail({ arxivId, initialLiked, score, onLikedChang
         const parts = paper.summary.split(new RegExp(`(?=^(?:${HEADINGS.join("|")}):)`, "m"));
         return (
           <div className="mt-4">
-            <h3 className="text-lg font-semibold text-gray-600 uppercase tracking-wide mb-1">
+            <h3 id="tour-paper-summary" className="text-lg font-semibold text-gray-600 uppercase tracking-wide mb-1">
               Summary
               <span className="normal-case font-normal text-gray-400"> (automatically generated)</span>
             </h3>

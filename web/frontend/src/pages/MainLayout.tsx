@@ -1,12 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { getMyPapers } from "../api/user";
 import { useGroups } from "../contexts/GroupsContext";
+import { useTour } from "../contexts/TourContext";
 import AppNav from "../components/AppNav";
 import RecommendationList from "../components/RecommendationList";
 import PaperDetail from "../components/PaperDetail";
 
 export default function MainLayout() {
   const { groups } = useGroups();
+  const { pendingPaperOpen, notifyTourPaperLoaded, closePaperPanelCount } = useTour();
   const [selectedArxivId, setSelectedArxivId] = useState<string | null>(null);
   const [selectedLiked, setSelectedLiked] = useState<number | null>(null);
   const [selectedScore, setSelectedScore] = useState<number | null>(null);
@@ -51,6 +53,25 @@ export default function MainLayout() {
     setSelectedLiked(likedCache[arxivId] ?? liked);
     window.history.pushState({ detail: true }, "");
   }
+
+  // Open paper requested by the tour.
+  useEffect(() => {
+    if (!pendingPaperOpen) return;
+    handleSelect(pendingPaperOpen.arxivId, null, null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingPaperOpen]);
+
+  // Close paper panel when the tour signals it (count increases).
+  // Use a ref so this never fires on initial mount — only on increments that
+  // happen while this component instance is alive.
+  const seenClosePaperPanelCountRef = useRef(closePaperPanelCount);
+  useEffect(() => {
+    if (closePaperPanelCount === seenClosePaperPanelCountRef.current) return;
+    seenClosePaperPanelCountRef.current = closePaperPanelCount;
+    setSelectedArxivId(null);
+    setSelectedLiked(null);
+    setSelectedScore(null);
+  }, [closePaperPanelCount]);
 
   function handleLikedChange(arxivId: string, liked: 1 | -1 | 0) {
     setSelectedLiked(liked);
@@ -122,6 +143,7 @@ export default function MainLayout() {
               initialLiked={selectedLiked}
               score={selectedScore}
               onLikedChange={handleLikedChange}
+              onPaperLoaded={notifyTourPaperLoaded}
             />
           </div>
         </div>

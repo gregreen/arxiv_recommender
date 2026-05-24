@@ -17,23 +17,30 @@ import { getMyGroups } from "../api/groups";
 interface TourStep {
   target: string;
   content: string;
-  placement?: "top" | "bottom" | "left" | "right" | "auto";
+  placement?: "top" | "bottom" | "left" | "right" | "auto" | "center";
   title?: string;
   route: string;
   floatingOptions?: Record<string, unknown>;
   spotlightTarget?: string;
+  requiresPaper?: boolean;
 }
 
 interface TourState {
   startTour: () => Promise<void>;
   openImportAccordion: boolean;
   clearImportAccordion: () => void;
+  pendingPaperOpen: { arxivId: string } | null;
+  notifyTourPaperLoaded: () => void;
+  closePaperPanelCount: number;
 }
 
 const TourContext = createContext<TourState>({
   startTour: async () => {},
   openImportAccordion: false,
   clearImportAccordion: () => {},
+  pendingPaperOpen: null,
+  notifyTourPaperLoaded: () => {},
+  closePaperPanelCount: 0,
 });
 
 export function useTour(): TourState {
@@ -47,6 +54,14 @@ export function TourProvider({ children }: { children: ReactNode }) {
 
   const [steps, setSteps] = useState<TourStep[]>([]);
   const [openImportAccordion, setOpenImportAccordion] = useState(false);
+  const [pendingPaperOpen, setPendingPaperOpen] = useState<{ arxivId: string } | null>(null);
+  const [closePaperPanelCount, setClosePaperPanelCount] = useState(0);
+
+  // arxiv_id of the first paper in the weekly recommendations list (set during buildSteps).
+  const tourFirstPaperIdRef = useRef<string | null>(null);
+
+  // Step index to resume at once the paper detail panel has loaded.
+  const pendingResumeAfterPaperRef = useRef<number | null>(null);
 
   // When we pause mid-tour for navigation, record the destination here.
   const pendingResumeRef = useRef<{ index: number; route: string } | null>(null);
@@ -72,6 +87,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
       ]);
       hasRealRecs = !recs.onboarding;
       isInGroup = groups.length > 0;
+      tourFirstPaperIdRef.current = recs.results[0]?.arxiv_id ?? null;
     } catch {
       // non-fatal; use defaults
     }
@@ -125,6 +141,22 @@ export function TourProvider({ children }: { children: ReactNode }) {
     }
 
     list.push(
+      {
+        target: "#tour-paper-like-buttons",
+        title: "Like or dislike papers",
+        content: "Rate a paper as 👍 Relevant or 👎 Not Relevant. Your ratings train the recommendation engine — the more papers you rate, the better your recommendations become.",
+        placement: "bottom",
+        route: "/",
+        requiresPaper: true,
+      },
+      {
+        target: "#tour-paper-summary",
+        title: "Auto-generated summary",
+        content: "Each paper includes an automatically generated structured summary, highlighting the scientific questions, data, methods and conclusions.",
+        placement: "bottom",
+        route: "/",
+        requiresPaper: true,
+      },
       {
         target: "#tour-import-accordion",
         title: "Import your library",
@@ -186,14 +218,25 @@ export function TourProvider({ children }: { children: ReactNode }) {
       // Tour fully ended or skipped — mark tutorial shown and return to recommendations.
       if (type === EVENTS.TOUR_END) {
         setTutorialShownRef.current().catch(() => {});
+        setPendingPaperOpen(null);
+        setClosePaperPanelCount((n) => n + 1);
         navigate("/");
         return;
       }
 
       // Target not found — skip that step rather than letting joyride terminate.
       if (type === EVENTS.TARGET_NOT_FOUND) {
-        const nextIndex = index + 1;
         const stps = stepsRef.current;
+        // If the missing target belongs to a requiresPaper step, the paper panel
+        // may not have finished rendering yet.  Re-trigger the paper-load
+        // mechanism so we retry once the paper is actually in the DOM.
+        if (stps[index]?.requiresPaper && tourFirstPaperIdRef.current) {
+          controls.stop(false);
+          pendingResumeAfterPaperRef.current = index;
+          setPendingPaperOpen({ arxivId: tourFirstPaperIdRef.current });
+          return;
+        }
+        const nextIndex = index + 1;
         if (nextIndex >= stps.length) return;
         const nextStep = stps[nextIndex];
         if (nextStep.route !== pathnameRef.current) {
@@ -214,6 +257,32 @@ export function TourProvider({ children }: { children: ReactNode }) {
         if (nextIndex < 0 || nextIndex >= stps.length) return;
 
         const nextStep = stps[nextIndex];
+        // When going back from a requiresPaper step to a step that doesn't need
+        // the paper panel, close it.
+        if (action === ACTIONS.PREV && stps[index]?.requiresPaper && !nextStep.requiresPaper) {
+          setPendingPaperOpen(null);
+          setClosePaperPanelCount((n) => n + 1);
+        }
+        // Next step requires the paper detail panel — open it and wait for load.
+        if (nextStep.requiresPaper && tourFirstPaperIdRef.current) {
+          if (action !== ACTIONS.PREV && !stps[index]?.requiresPaper) {
+            // Going forward from a non-paper step: stop and wait for paper to open.
+            controls.stop(false);
+            pendingResumeAfterPaperRef.current = nextIndex;
+            setPendingPaperOpen({ arxivId: tourFirstPaperIdRef.current });
+            return;
+          } else if (nextStep.route !== pathnameRef.current) {
+            // Going back to a requiresPaper step on a different route: navigate
+            // there and re-open the paper panel (MainLayout will have remounted).
+            controls.stop(false);
+            pendingResumeAfterPaperRef.current = nextIndex;
+            setPendingPaperOpen({ arxivId: tourFirstPaperIdRef.current });
+            navigate(nextStep.route);
+            return;
+          }
+          // Going back to a requiresPaper step on the same route: paper is
+          // already open, let joyride advance normally.
+        }
         if (nextStep.route !== pathnameRef.current) {
           controls.stop(false);
           if (nextStep.route === "/library") {
@@ -310,12 +379,34 @@ export function TourProvider({ children }: { children: ReactNode }) {
     setOpenImportAccordion(false);
   }, []);
 
+  const notifyTourPaperLoaded = useCallback(() => {
+    const idx = pendingResumeAfterPaperRef.current;
+    if (idx === null) return;
+    pendingResumeAfterPaperRef.current = null;
+    // Poll until the step's target element is present in the DOM (handles the
+    // race between React re-rendering paper content and joyride searching for
+    // the target), then start the tour.
+    const target = stepsRef.current[idx]?.target;
+    function tryStart(retriesLeft: number) {
+      if (!target || typeof target !== "string" || document.querySelector(target)) {
+        setTimeout(() => controlsRef.current.start(idx), 50);
+        return;
+      }
+      if (retriesLeft <= 0) {
+        controlsRef.current.start(idx); // give up waiting; let TARGET_NOT_FOUND handle it
+        return;
+      }
+      setTimeout(() => tryStart(retriesLeft - 1), 100);
+    }
+    tryStart(20); // poll up to ~2 s
+  }, []);
+
   // --------------------------------------------------------------------------
   // Render
   // --------------------------------------------------------------------------
 
   return (
-    <TourContext.Provider value={{ startTour, openImportAccordion, clearImportAccordion }}>
+    <TourContext.Provider value={{ startTour, openImportAccordion, clearImportAccordion, pendingPaperOpen, notifyTourPaperLoaded, closePaperPanelCount }}>
       {Tour}
       {children}
     </TourContext.Provider>
