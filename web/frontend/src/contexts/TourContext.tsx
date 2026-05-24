@@ -23,6 +23,7 @@ interface TourStep {
   floatingOptions?: Record<string, unknown>;
   spotlightTarget?: string;
   requiresPaper?: boolean;
+  scrollOffset?: number;
 }
 
 interface TourState {
@@ -155,6 +156,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
         placement: "bottom",
         route: "/",
         requiresPaper: true,
+        scrollOffset: 100,
       },
       {
         target: "#tour-paper-summary",
@@ -163,6 +165,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
         placement: "bottom",
         route: "/",
         requiresPaper: true,
+        scrollOffset: 80,
       },
       {
         target: "#tour-import-accordion",
@@ -196,13 +199,14 @@ export function TourProvider({ children }: { children: ReactNode }) {
 
   const joyrideSteps = useMemo(
     () =>
-      steps.map(({ target, content, title, placement, floatingOptions, spotlightTarget }) => ({
+      steps.map(({ target, content, title, placement, floatingOptions, spotlightTarget, scrollOffset }) => ({
         target,
         content,
         title,
         placement: placement ?? "auto",
         ...(floatingOptions ? { floatingOptions } : {}),
         ...(spotlightTarget ? { spotlightTarget } : {}),
+        ...(scrollOffset !== undefined ? { scrollOffset } : {}),
       })),
     [steps]
   );
