@@ -481,6 +481,16 @@ function TutorialContent() {
   return (
     <div className="space-y-8 text-gray-700 max-w-2xl">
       <h1 className="text-2xl font-bold text-gray-900">Tutorial</h1>
+      <section className="space-y-2">
+        <p className="text-base leading-relaxed">
+          This website gives personalised arXiv paper recommendations, based on papers you have
+          previously liked or disliked. Every day, each new arXiv paper is processed and
+          categorised, and recommendations are updated for each user.
+        </p>
+        <p className="text-base leading-relaxed">
+          Below, you can see some of the key features of the website.
+        </p>
+      </section>
       {user && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold text-gray-800">Interactive tour</h2>
@@ -550,6 +560,34 @@ function TutorialContent() {
       </section>
 
       <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-gray-800">Library</h2>
+        <p className="text-base leading-relaxed">
+          The <Link to="/library" className="text-blue-600 hover:underline">Library</Link> page allows
+          you to see all papers that you have previously marked as relevant or irrelevant, and to import
+          papers (by arXiv ID) that you find relevant. You can either add papers one-by-one by arXiv ID,
+          or import them in bulk from a list of arXiv IDs.
+        </p>
+        <StaticLibraryImportDemo />
+        <p className="text-base leading-relaxed">
+          If you want to import a list of papers from a{" "}
+          <a href="https://ui.adsabs.harvard.edu" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">NASA ADS</a>{" "}
+          library, export the library using the custom{" "}
+          <code className="font-mono bg-gray-100 px-1 rounded text-sm">%X</code> format string and paste
+          the result into the <Link to="/library" className="text-blue-600 hover:underline">Library</Link> page
+          import box.
+        </p>
+        <p className="text-base leading-relaxed">
+          Papers are not imported instantly. It takes time for the LLM that powers the site to read and
+          categorize each paper. It can take as little as one minute for the site to ingest a new paper.
+          However, if the site is currently handling a large volume of papers, this process can take longer.
+        </p>
+        <p className="text-base leading-relaxed">
+          Once your imported papers have been processed, they will be used to help predict which new
+          papers you will be interested in. <em><span className="font-medium">Importing your own papers</span> is a particularly effective way of training the recommendation engine.</em>
+        </p>
+      </section>
+
+      <section className="space-y-3">
         <h2 className="text-lg font-semibold text-gray-800">Group recommendations</h2>
         <p className="text-base leading-relaxed">
           Sometimes, you may want to generate recommendations for a group of researchers. This can be
@@ -568,41 +606,13 @@ function TutorialContent() {
           papers from the last day, week and month. Clicking on "Personal" will bring you back to your
           individual recommendations.
         </p>
+        <StaticRecsDemo groupName="Dust enthusiasts" showGroupMethod papers={DUST_PAPERS} />
         <p className="text-base leading-relaxed">
           There are two ways of aggregating group recommendations, which you can switch between on the{" "}
           <Link to="/" className="text-blue-600 hover:underline">Recommendations</Link> page.
           The "voting" method (which does not involve manual voting) tends to surface papers with the
           largest number of interested group members. The "consensus" method tends to surface papers that
           all group members are interested in.
-        </p>
-        <StaticRecsDemo groupName="Dust enthusiasts" showGroupMethod papers={DUST_PAPERS} />
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-gray-800">Library</h2>
-        <p className="text-base leading-relaxed">
-          The <Link to="/library" className="text-blue-600 hover:underline">Library</Link> page allows
-          you to see all papers that you have previously marked as relevant or irrelevant, and to import
-          papers (by arXiv ID) that you find relevant. You can either add papers one-by-one by arXiv ID,
-          or import them in bulk from a list of arXiv IDs.
-        </p>
-        <StaticLibraryImportDemo />
-        <p className="text-base leading-relaxed">
-          If you want to import a list of papers from a{" "}
-          <a href="https://ui.adsabs.harvard.edu" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">NASA ADS</a>{" "}
-          library, export the library using the custom{" "}
-          <code className="font-mono bg-gray-100 px-1 rounded text-sm">%X</code> format string and paste
-          them into the <Link to="/library" className="text-blue-600 hover:underline">Library</Link> page
-          import box.
-        </p>
-        <p className="text-base leading-relaxed">
-          Papers are not imported instantly. It takes time for the LLM that powers the site to read and
-          categorize each paper. It can take as little as one minute for the site to ingest a new paper.
-          However, if the site is currently handling a large volume of papers, this process can take longer.
-        </p>
-        <p className="text-base leading-relaxed">
-          Once your imported papers have been processed, they will be used to help predict which new
-          papers you will be interested in.
         </p>
       </section>
     </div>

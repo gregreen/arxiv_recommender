@@ -78,6 +78,14 @@ export function TourProvider({ children }: { children: ReactNode }) {
 
     const list: TourStep[] = [
       {
+        target: "body",
+        title: "Welcome",
+        content:
+          "This site gives personalised arXiv paper recommendations, updated daily as new papers are processed and categorised. The website learns your preferences over time as you like or dislike papers.",
+        placement: "center",
+        route: "/",
+      },
+      {
         // Anchor the tooltip to the tab bar (small element, placement: bottom
         // puts tooltip below it into the visible list area on all screen sizes)
         // while spotlighting the full recommendations list.
@@ -127,7 +135,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
       {
         target: "#tour-arxiv-input",
         title: "Add a paper",
-        content: "Paste an arXiv ID (e.g. 2401.12345) and mark it as liked or disliked to start training your recommendations.",
+        content: "Paste an arXiv ID (e.g. 2401.12345) and mark it as liked or disliked to start training your recommendations. Adding your own papers is an effective way to train the recommendation model.",
         placement: "bottom",
         route: "/library",
       },
