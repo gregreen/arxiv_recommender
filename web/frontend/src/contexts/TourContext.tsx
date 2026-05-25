@@ -24,6 +24,8 @@ interface TourStep {
   spotlightTarget?: string;
   requiresPaper?: boolean;
   scrollOffset?: number;
+  before?: () => Promise<void>;
+  loaderDelay?: number;
 }
 
 interface TourState {
@@ -148,6 +150,10 @@ export function TourProvider({ children }: { children: ReactNode }) {
         content: "Click on any paper to see more details about it.",
         placement: "right",
         route: "/",
+        // On mobile, going back from the paper detail triggers a 300 ms slide
+        // animation. Wait for it to finish before joyride positions the spotlight.
+        before: () => new Promise<void>((resolve) => setTimeout(resolve, 350)),
+        loaderDelay: 1000, // suppress the loading spinner for this short wait
       },
       {
         target: "#tour-paper-like-buttons",
@@ -199,7 +205,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
 
   const joyrideSteps = useMemo(
     () =>
-      steps.map(({ target, content, title, placement, floatingOptions, spotlightTarget, scrollOffset }) => ({
+      steps.map(({ target, content, title, placement, floatingOptions, spotlightTarget, scrollOffset, before, loaderDelay }) => ({
         target,
         content,
         title,
@@ -207,6 +213,8 @@ export function TourProvider({ children }: { children: ReactNode }) {
         ...(floatingOptions ? { floatingOptions } : {}),
         ...(spotlightTarget ? { spotlightTarget } : {}),
         ...(scrollOffset !== undefined ? { scrollOffset } : {}),
+        ...(before ? { before } : {}),
+        ...(loaderDelay !== undefined ? { loaderDelay } : {}),
       })),
     [steps]
   );
