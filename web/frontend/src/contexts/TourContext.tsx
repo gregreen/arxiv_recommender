@@ -323,6 +323,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
     options: {
       skipBeacon: true,
       overlayClickAction: false,
+      closeButtonAction: "skip",
       primaryColor: "#3b82f6",
       zIndex: 10000,
     },
