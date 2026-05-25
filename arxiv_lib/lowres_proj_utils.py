@@ -15,6 +15,7 @@ ensure_lowres_proj_coords(con, arxiv_ids)
 import logging
 import os
 import sqlite3
+import threading
 from datetime import datetime, timezone
 
 import numpy as np
@@ -27,6 +28,11 @@ _BATCH = 256
 
 # Module-level cache: avoids re-loading the joblib file on every request.
 _cache: dict = {"bundle": None, "mtime": 0.0}
+
+# Numba's default workqueue threading layer is not thread-safe: concurrent calls
+# to projector.transform() from multiple uvicorn worker threads crash it and
+# orphan its multiprocessing spawn workers.  Serialise all transform calls.
+_transform_lock = threading.Lock()
 
 
 def _load_bundle() -> dict | None:
@@ -155,7 +161,8 @@ def ensure_lowres_proj_coords(con: sqlite3.Connection, arxiv_ids: list[str]) -> 
         if not found_ids:
             continue
         try:
-            raw_coords = projector.transform(matrix)
+            with _transform_lock:
+                raw_coords = projector.transform(matrix)
             logger.debug(
                 "ensure_lowres_proj_coords: batch %d-%d: transform produced shape %s.",
                 i, i + len(batch) - 1, raw_coords.shape,
