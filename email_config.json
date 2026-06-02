@@ -3,6 +3,7 @@
         "enabled": true,
         "backend": "smtp",
         "email_from": "noreply@example.com",
-        "app_base_url": "http://localhost:5173"
+        "app_base_url": "http://localhost:5173",
+        "contact_email": ""
     }
 }

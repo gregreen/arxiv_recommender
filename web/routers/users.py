@@ -13,9 +13,11 @@ PUT    /api/users/me/categories              — replace subscribed categories
 import json
 import re
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 
 from web.limiter import limiter
@@ -28,10 +30,21 @@ from arxiv_lib.config import (
     IMPORT_DAILY_LIMIT_TIER_A,
     IMPORT_DAILY_LIMIT_TIER_B,
 )
+from web.auth import verify_password
 from web.dependencies import get_current_user, get_db
 
 router = APIRouter(prefix="/users/me", tags=["users"])
 
+
+class DeleteAccountRequest(BaseModel):
+    password: str
+
+
+class ExportRequest(BaseModel):
+    password: str
+
+
+_EXPORT_COOLDOWN_DAYS = 7
 _ADS_INPUT_CAP = 64
 
 
@@ -117,6 +130,180 @@ def _ensure_ingest_enqueued(db: sqlite3.Connection, arxiv_id: str) -> None:
     if not (has_search and has_rec):
         if not _task_pending_or_running(db, "embed", arxiv_id):
             enqueue_task(db, "embed", {"arxiv_id": arxiv_id})
+
+
+# ---------------------------------------------------------------------------
+# Account deletion
+# ---------------------------------------------------------------------------
+
+@router.delete("", status_code=204)
+@limiter.limit("3/hour")
+def delete_account(
+    request: Request,
+    body: DeleteAccountRequest,
+    response: Response,
+    db: sqlite3.Connection = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Permanently delete the authenticated user's account and all their data."""
+    if user["is_admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin accounts cannot be self-deleted. Ask another admin to remove your account.",
+        )
+
+    # Block if sole admin of any group.
+    sole_admin_groups = db.execute(
+        """
+        SELECT g.name
+          FROM group_members gm
+          JOIN groups g ON g.id = gm.group_id
+         WHERE gm.user_id = ? AND gm.is_admin = 1
+           AND (SELECT COUNT(*) FROM group_members gm2
+                 WHERE gm2.group_id = gm.group_id AND gm2.is_admin = 1) = 1
+        """,
+        (user["id"],),
+    ).fetchall()
+    if sole_admin_groups:
+        names = ", ".join(f'"{r["name"]}"' for r in sole_admin_groups)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"You are the sole admin of: {names}. "
+                "Transfer admin rights or delete those groups before deleting your account."
+            ),
+        )
+
+    row = db.execute(
+        "SELECT password_hash FROM users WHERE id = ?", (user["id"],)
+    ).fetchone()
+    if row is None or not verify_password(body.password, row["password_hash"]):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password is incorrect.",
+        )
+
+    uid = user["id"]
+    db.execute("UPDATE group_invites SET used_by = NULL WHERE used_by = ?", (uid,))
+    db.execute("DELETE FROM group_invites WHERE created_by = ?", (uid,))
+    db.execute("DELETE FROM recommendations WHERE user_id = ?", (uid,))
+    db.execute("DELETE FROM user_models WHERE user_id = ?", (uid,))
+    db.execute("DELETE FROM user_import_log WHERE user_id = ?", (uid,))
+    db.execute("DELETE FROM user_papers WHERE user_id = ?", (uid,))
+    db.execute("DELETE FROM user_categories WHERE user_id = ?", (uid,))
+    db.execute("DELETE FROM user_search_terms WHERE user_id = ?", (uid,))
+    db.execute(
+        "DELETE FROM task_queue WHERE type = 'recommend' AND json_extract(payload, '$.user_id') = ?",
+        (uid,),
+    )
+    db.execute("DELETE FROM users WHERE id = ?", (uid,))
+    db.commit()
+
+    response.delete_cookie("access_token")
+
+
+# ---------------------------------------------------------------------------
+# Data export (GDPR)
+# ---------------------------------------------------------------------------
+
+@router.post("/export", status_code=200)
+@limiter.limit("3/day")
+def export_user_data(
+    request: Request,
+    body: ExportRequest,
+    db: sqlite3.Connection = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Return a JSON export of all personal data held for the authenticated user."""
+    row = db.execute(
+        "SELECT password_hash, last_export_at FROM users WHERE id = ?", (user["id"],)
+    ).fetchone()
+    if row is None or not verify_password(body.password, row["password_hash"]):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password is incorrect.",
+        )
+
+    # Enforce per-user cooldown independent of IP-based limiter.
+    if row["last_export_at"]:
+        last = datetime.fromisoformat(row["last_export_at"].rstrip("Z")).replace(tzinfo=timezone.utc)
+        next_allowed = last + timedelta(days=_EXPORT_COOLDOWN_DAYS)
+        if datetime.now(timezone.utc) < next_allowed:
+            wait_seconds = int((next_allowed - datetime.now(timezone.utc)).total_seconds())
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Data export is limited to once every {_EXPORT_COOLDOWN_DAYS} days. "
+                       f"Please wait {wait_seconds} seconds before requesting another export.",
+            )
+
+    db.execute(
+        "UPDATE users SET last_export_at = datetime('now') WHERE id = ?", (user["id"],)
+    )
+    db.commit()
+
+    uid = user["id"]
+
+    # Account
+    account_row = db.execute(
+        "SELECT email, created_at FROM users WHERE id = ?", (uid,)
+    ).fetchone()
+    account = {"email": account_row["email"], "created_at": account_row["created_at"]}
+
+    # Library
+    library = [
+        {"arxiv_id": r["arxiv_id"], "liked": r["liked"], "added_at": r["added_at"]}
+        for r in db.execute(
+            "SELECT arxiv_id, liked, added_at FROM user_papers WHERE user_id = ? ORDER BY added_at DESC",
+            (uid,),
+        ).fetchall()
+    ]
+
+    # Categories
+    categories = [
+        r["category"]
+        for r in db.execute(
+            "SELECT category FROM user_categories WHERE user_id = ? ORDER BY category",
+            (uid,),
+        ).fetchall()
+    ]
+
+    # Search terms
+    search_terms = [
+        {"query": r["query"], "last_searched_at": r["last_searched_at"]}
+        for r in db.execute(
+            "SELECT query, last_searched_at FROM user_search_terms WHERE user_id = ? ORDER BY last_searched_at DESC",
+            (uid,),
+        ).fetchall()
+    ]
+
+    # Groups
+    groups = [
+        {"name": r["name"], "is_admin": bool(r["is_admin"]), "joined_at": r["joined_at"]}
+        for r in db.execute(
+            """
+            SELECT g.name, gm.is_admin, gm.joined_at
+              FROM group_members gm
+              JOIN groups g ON g.id = gm.group_id
+             WHERE gm.user_id = ?
+             ORDER BY gm.joined_at
+            """,
+            (uid,),
+        ).fetchall()
+    ]
+
+    export = {
+        "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "account": account,
+        "library": library,
+        "categories": categories,
+        "search_terms": search_terms,
+        "groups": groups,
+    }
+
+    return JSONResponse(
+        content=export,
+        headers={"Content-Disposition": 'attachment; filename="arxiv-recommender-data.json"'},
+    )
 
 
 # ---------------------------------------------------------------------------

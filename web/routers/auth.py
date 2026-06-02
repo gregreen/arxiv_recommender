@@ -26,7 +26,7 @@ from limits import parse as _parse_limit
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from arxiv_lib.config import EMAIL_VERIFICATION_ENABLED
+from arxiv_lib.config import CONTACT_EMAIL, EMAIL_VERIFICATION_ENABLED
 from web.auth import create_access_token, hash_password, verify_password
 from web.dependencies import get_current_user, get_db
 from web.email import send_password_reset_email, send_verification_email
@@ -423,7 +423,7 @@ def reset_password(
 @router.get("/email-enabled", status_code=status.HTTP_200_OK)
 def email_enabled():
     """Return whether email sending is configured on this deployment."""
-    return {"email_enabled": EMAIL_VERIFICATION_ENABLED}
+    return {"email_enabled": EMAIL_VERIFICATION_ENABLED, "contact_email": CONTACT_EMAIL}
 
 
 @router.post("/change-password", status_code=status.HTTP_200_OK)

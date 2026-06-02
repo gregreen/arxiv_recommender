@@ -35,7 +35,9 @@ CREATE TABLE IF NOT EXISTS users (
     email_verify_token_expires_at TEXT,
     email_verify_resend_count   INTEGER NOT NULL DEFAULT 0,
     email_verify_next_resend_at TEXT,
-    created_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+    last_export_at              TEXT,
+    last_active_at              TEXT
 );
 
 -- Per-user arXiv category subscriptions (used by daily cron to decide what to ingest)
@@ -198,6 +200,24 @@ CREATE TABLE IF NOT EXISTS paper_lowres_proj (
     y           REAL NOT NULL,
     computed_at TEXT NOT NULL
 );
+
+-- Pre-aggregated page-visit analytics.
+-- page_stats_daily: daily visit counters per normalised route path. Kept indefinitely (tiny).
+-- page_stats_daily_users: dedup set for distinct-user-per-page counting.
+--   user_id has no FK — it is a pure dedup marker, not a relational reference.
+--   Retention: rows older than 90 days should be pruned periodically.
+CREATE TABLE IF NOT EXISTS page_stats_daily (
+    date    TEXT NOT NULL,
+    page    TEXT NOT NULL,
+    visits  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (date, page)
+);
+CREATE TABLE IF NOT EXISTS page_stats_daily_users (
+    date    TEXT    NOT NULL,
+    page    TEXT    NOT NULL,
+    user_id INTEGER NOT NULL,
+    PRIMARY KEY (date, page, user_id)
+);
 """
 
 
@@ -238,12 +258,35 @@ def init_app_db(path: str = APP_DB_PATH()) -> None:
             "ALTER TABLE group_invites ADD COLUMN remaining_uses INTEGER NOT NULL DEFAULT 1",
             "ALTER TABLE task_queue ADD COLUMN not_before TEXT",
             "ALTER TABLE users ADD COLUMN tutorial_shown INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN last_export_at TEXT",
+            "ALTER TABLE users ADD COLUMN last_active_at TEXT",
         ]:
             try:
                 con.execute(stmt)
                 con.commit()
             except sqlite3.OperationalError:
                 pass  # column already exists
+        # Drop legacy raw-event analytics table (replaced by page_stats_daily).
+        con.execute("DROP TABLE IF EXISTS page_events")
+        con.commit()
+        # Ensure new analytics tables exist (idempotent — already in _SCHEMA_SQL for fresh DBs).
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS page_stats_daily (
+                date    TEXT NOT NULL,
+                page    TEXT NOT NULL,
+                visits  INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (date, page)
+            )
+        """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS page_stats_daily_users (
+                date    TEXT    NOT NULL,
+                page    TEXT    NOT NULL,
+                user_id INTEGER NOT NULL,
+                PRIMARY KEY (date, page, user_id)
+            )
+        """)
+        con.commit()
         # Mark previously consumed single-use invites as exhausted.
         con.execute(
             "UPDATE group_invites SET remaining_uses = 0 WHERE remaining_uses = 1 AND used_at IS NOT NULL"

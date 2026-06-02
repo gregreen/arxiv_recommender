@@ -44,7 +44,43 @@ export async function resetPassword(token: string, password: string) {
 }
 
 export async function getEmailEnabled() {
-  return apiFetch<{ email_enabled: boolean }>("/api/auth/email-enabled");
+  return apiFetch<{ email_enabled: boolean; contact_email: string }>("/api/auth/email-enabled");
+}
+
+export async function deleteAccount(password: string): Promise<void> {
+  return apiFetch<void>("/api/users/me", {
+    method: "DELETE",
+    body: JSON.stringify({ password }),
+  });
+}
+
+export async function exportData(password: string): Promise<void> {
+  const response = await fetch("/api/users/me/export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ password }),
+  });
+  if (!response.ok) {
+    let detail = "An error occurred. Please try again.";
+    try {
+      const data = await response.json();
+      if (data?.detail) detail = data.detail;
+    } catch {
+      // ignore parse errors
+    }
+    const { ApiError } = await import("./client");
+    throw new ApiError(response.status, detail);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "arxiv-recommender-data.json";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export async function changePassword(currentPassword: string, newPassword: string) {

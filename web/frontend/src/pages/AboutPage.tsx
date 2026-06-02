@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { getEmailEnabled } from "../api/auth";
 import { QRCodeSVG } from "qrcode.react";
 import AppNav from "../components/AppNav";
 import MathText from "../components/MathText";
@@ -620,18 +622,112 @@ function TutorialContent() {
 }
 
 // ---------------------------------------------------------------------------
+// Privacy panel
+// ---------------------------------------------------------------------------
+
+function PrivacyContent() {
+  const [contactEmail, setContactEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    getEmailEnabled()
+      .then((r) => setContactEmail(r.contact_email || null))
+      .catch(() => {});
+  }, []);
+
+  const contact = contactEmail
+    ? <a href={`mailto:${contactEmail}`} className="text-blue-600 hover:underline">{contactEmail}</a>
+    : <span>the site administrator</span>;
+
+  return (
+    <div className="space-y-6 text-sm text-gray-700 leading-relaxed max-w-2xl">
+      <div>
+        <h2 className="text-lg font-semibold text-gray-800 mb-2">Privacy notice</h2>
+        <p>
+          This notice explains what personal data arXiv Recommender collects, how it is
+          used, and your rights under the General Data Protection Regulation (GDPR) and
+          equivalent privacy laws.
+        </p>
+      </div>
+
+      <div>
+        <h3 className="font-semibold text-gray-800 mb-1">Data controller</h3>
+        <p>
+          The operator of this service is the data controller. To exercise any of
+          your rights, or to ask questions about how your data is used, contact{" "}
+          {contact}.
+        </p>
+      </div>
+
+      <div>
+        <h3 className="font-semibold text-gray-800 mb-1">What data we hold</h3>
+        <ul className="list-disc list-inside space-y-1">
+          <li>Your email address and a hashed copy of your password.</li>
+          <li>Papers you have marked as relevant or irrelevant.</li>
+          <li>arXiv category subscriptions you have configured.</li>
+          <li>Groups you are a member of, and whether you are an admin of those groups.</li>
+          <li>
+            Analytics: the date of your most recent visit, and which pages you visited on
+            each day (not the full path history — only whether you visited a given page on
+            a given day). Older records are deleted automatically after 90 days.
+          </li>
+        </ul>
+      </div>
+
+      <div>
+        <h3 className="font-semibold text-gray-800 mb-1">Purpose and legal basis</h3>
+        <p>
+          Your data is used solely to provide the recommendation service described on
+          this site. The legal basis is the performance of the service you signed up for
+          (GDPR Art. 6(1)(b)) and, for analytics, our legitimate interest in understanding
+          how the service is used in aggregate (GDPR Art. 6(1)(f)).
+        </p>
+      </div>
+
+      <div>
+        <h3 className="font-semibold text-gray-800 mb-1">Retention</h3>
+        <ul className="list-disc list-inside space-y-1">
+          <li>Analytics records (page-visit dedup entries) are automatically deleted after 90 days.</li>
+          <li>All other account data is retained until you delete your account.</li>
+        </ul>
+      </div>
+
+      <div>
+        <h3 className="font-semibold text-gray-800 mb-1">Third parties</h3>
+        <p>
+          No personal data is shared with, sold to, or processed by any third party.
+        </p>
+      </div>
+
+      <div>
+        <h3 className="font-semibold text-gray-800 mb-1">Your rights</h3>
+        <p className="mb-1">Under GDPR you have the right to:</p>
+        <ul className="list-disc list-inside space-y-1">
+          <li><span className="font-medium">Erasure</span> — delete your account and all associated data from the{" "}
+            <Link to="/account" className="text-blue-600 hover:underline">Account</Link> page.</li>
+          <li><span className="font-medium">Access &amp; portability</span> — download a copy of all your data at any time from the{" "}
+            <Link to="/account" className="text-blue-600 hover:underline">Account</Link> page.</li>
+          <li><span className="font-medium">Objection</span> — object to processing based on legitimate interest by contacting {contact}.</li>
+          <li><span className="font-medium">Rectification</span> — correct inaccurate data by contacting {contact}.</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Tab definitions
 // ---------------------------------------------------------------------------
 
 const TABS = [
   { id: "how-it-works", label: "How it works" },
   { id: "tutorial",     label: "Tutorial" },
+  { id: "privacy",      label: "Privacy" },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
 
 function isValidTab(s: string | undefined): s is TabId {
-  return s === "how-it-works" || s === "tutorial";
+  return s === "how-it-works" || s === "tutorial" || s === "privacy";
 }
 
 // ---------------------------------------------------------------------------
@@ -643,7 +739,10 @@ export default function AboutPage() {
   const navigate = useNavigate();
 
   const activeId: TabId = isValidTab(tab) ? tab : "tutorial";
-  const content = activeId === "how-it-works" ? <HowItWorksContent /> : <TutorialContent />;
+  const content =
+    activeId === "how-it-works" ? <HowItWorksContent /> :
+    activeId === "privacy"      ? <PrivacyContent /> :
+                                  <TutorialContent />;
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">

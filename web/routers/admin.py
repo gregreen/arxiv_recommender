@@ -12,6 +12,7 @@ GET  /api/admin/papers                 — ingested papers, searchable
 GET  /api/admin/groups                 — list all groups with aggregate stats
 GET  /api/admin/groups/{group_id}      — group detail with members + pending invites
 DELETE /api/admin/groups/{group_id}    — delete a group (cascades to members/invites)
+GET  /api/admin/analytics              — page-visit telemetry summary
 """
 
 import json
@@ -407,4 +408,78 @@ def delete_group(
         (_admin["id"], "delete_group", group_id),
     )
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Analytics
+# ---------------------------------------------------------------------------
+
+@router.get("/analytics")
+def get_analytics(
+    days: int = Query(default=30, ge=1, le=365),
+    db: sqlite3.Connection = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    """Return page-visit telemetry for the last *days* days.
+
+    Response shape::
+
+        {
+            "summary": {"dau": int, "wau": int, "mau": int},
+            "daily":   [{"date": str, "visits": int}, ...],
+            "pages":   [{"page": str, "visits": int, "users": int}, ...]
+        }
+
+    *dau* = distinct users active today; *wau* = last 7 days; *mau* = last 30 days.
+    Daily rows show total visit counts only. Page rows include distinct-user counts
+    from the dedup table (accurate within the 90-day retention window).
+    """
+    # Summary counts — always fixed windows regardless of the ?days parameter
+    summary_row = db.execute("""
+        SELECT
+            COUNT(*) FILTER (WHERE last_active_at >= date('now'))              AS dau,
+            COUNT(*) FILTER (WHERE last_active_at >= date('now', '-6 days'))   AS wau,
+            COUNT(*) FILTER (WHERE last_active_at >= date('now', '-29 days'))  AS mau
+        FROM users
+    """).fetchone()
+
+    # Daily visit counts for the requested window
+    daily_rows = db.execute("""
+        SELECT
+            date,
+            SUM(visits) AS visits
+        FROM page_stats_daily
+        WHERE date >= date('now', ? || ' days')
+        GROUP BY date
+        ORDER BY date ASC
+    """, (f"-{days}",)).fetchall()
+
+    # Page breakdown: visits from counter table, distinct users from dedup table
+    page_rows = db.execute("""
+        SELECT
+            p.page,
+            SUM(p.visits)           AS visits,
+            COUNT(DISTINCT u.user_id) AS users
+        FROM page_stats_daily p
+        LEFT JOIN page_stats_daily_users u USING (date, page)
+        WHERE p.date >= date('now', ? || ' days')
+        GROUP BY p.page
+        ORDER BY visits DESC
+    """, (f"-{days}",)).fetchall()
+
+    return {
+        "summary": {
+            "dau": summary_row["dau"] or 0,
+            "wau": summary_row["wau"] or 0,
+            "mau": summary_row["mau"] or 0,
+        },
+        "daily": [
+            {"date": r["date"], "visits": r["visits"]}
+            for r in daily_rows
+        ],
+        "pages": [
+            {"page": r["page"], "visits": r["visits"], "users": r["users"]}
+            for r in page_rows
+        ],
+    }
 
