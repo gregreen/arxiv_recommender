@@ -8,7 +8,7 @@ import logging
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from arxiv_lib.arxiv_id import validate_arxiv_id
 from arxiv_lib.config import RECOMMEND_TIME_WINDOWS
@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 
 
 class SearchRequest(BaseModel):
-    query: str
+    query: str = Field(..., max_length=128)
 
 
 @router.post("")

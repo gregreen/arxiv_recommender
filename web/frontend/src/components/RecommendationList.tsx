@@ -37,6 +37,7 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
   const [isSearchLoading, setIsSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const counterRef = useRef<HTMLSpanElement>(null);
 
   const fetchRecs = useCallback(
     async (win: TimeWindow) => {
@@ -106,6 +107,11 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
     setCommittedQuery("");
     setSearchResultsByWindow(null);
     setSearchError(null);
+      if (counterRef.current) {
+      counterRef.current.style.display = "none";
+      counterRef.current.textContent = "0/128";
+      counterRef.current.className = "text-xs self-end pr-10 text-gray-400";
+    }
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -188,12 +194,22 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
 
       {/* Search input row — visible when expanded, loading, or search is active */}
       {(isSearchExpanded || isSearchLoading || isSearchActive) && (
-        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-200 shrink-0">
+        <div className="flex flex-col gap-0.5 px-3 py-2 border-b border-gray-200 shrink-0">
+        <div className="flex items-center gap-1.5">
           <input
             ref={inputRef}
             type="text"
             defaultValue=""
+            maxLength={128}
             onKeyDown={handleSearchKeyDown}
+            onChange={(e) => {
+              const len = e.target.value.length;
+              if (counterRef.current) {
+                counterRef.current.textContent = `${len}/128`;
+                counterRef.current.style.display = len >= 100 ? "block" : "none";
+                counterRef.current.className = `text-xs self-end pr-10 ${len >= 128 ? "text-red-500" : "text-gray-400"}`;
+              }
+            }}
             placeholder="Search papers…"
             className="flex-1 text-sm border border-gray-300 rounded px-2.5 py-1.5 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200"
           />
@@ -216,6 +232,14 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
               </svg>
             )}
           </button>
+        </div>
+        <span
+          ref={counterRef}
+          style={{ display: "none" }}
+          className="text-xs self-end pr-10 text-gray-400"
+        >
+          0/128
+        </span>
         </div>
       )}
 
