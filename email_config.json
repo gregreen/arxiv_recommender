@@ -1,7 +1,8 @@
 {
     "verification": {
         "enabled": true,
-        "email_from": "onboarding@resend.dev",
+        "backend": "smtp",
+        "email_from": "noreply@example.com",
         "app_base_url": "http://localhost:5173"
     }
 }

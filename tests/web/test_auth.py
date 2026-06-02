@@ -318,3 +318,137 @@ class TestLoginAccountRateLimit:
                 "/api/auth/login", json={"email": email_b, "password": "wrong"}
             )
         assert r_b.status_code == 401, "email_b should not be rate limited"
+
+
+# ---------------------------------------------------------------------------
+# End-to-end flow: signup → verify-email → login
+# ---------------------------------------------------------------------------
+
+class TestSignupVerifyFlow:
+    """Full signup → email-verification → login flow using a temporary DB.
+
+    send_verification_email is patched so no real email is sent; the token
+    argument that the router would have emailed is captured and then submitted
+    directly to /verify-email, keeping the flow as close to reality as possible.
+    """
+
+    def test_signup_verify_then_login(self, raw_client, web_db):
+        new_email = "newuser@example.com"
+        new_password = "password123"
+        captured = {}
+
+        def _capture_token(to, token):
+            captured["token"] = token
+
+        # Step 1: register — should store an unverified user and call the email helper
+        with (
+            patch("web.routers.auth.EMAIL_VERIFICATION_ENABLED", True),
+            patch("web.routers.auth.send_verification_email", side_effect=_capture_token),
+        ):
+            r = raw_client.post(
+                "/api/auth/register", json={"email": new_email, "password": new_password}
+            )
+        assert r.status_code == 202
+        assert "token" in captured, "send_verification_email was not called"
+
+        token = captured["token"]
+
+        # The token must be stored in the DB and account must be inactive before verification
+        row = web_db.execute(
+            "SELECT email_verify_token, is_active, email_verified FROM users WHERE email = ?",
+            (new_email,),
+        ).fetchone()
+        assert row is not None
+        assert row["email_verify_token"] == token
+        assert row["is_active"] == 0
+        assert row["email_verified"] == 0
+
+        # Step 2: consume the token — account should become active and verified
+        r = raw_client.get(f"/api/auth/verify-email?token={token}")
+        assert r.status_code == 200
+
+        row = web_db.execute(
+            "SELECT email_verify_token, is_active, email_verified FROM users WHERE email = ?",
+            (new_email,),
+        ).fetchone()
+        assert row["email_verified"] == 1
+        assert row["is_active"] == 1
+        # Token is intentionally retained for 7 days so repeat clicks return
+        # "already_verified" rather than "invalid_token"; cleanup_tokens.py nulls it later.
+
+        # Step 3: login with the new credentials should succeed
+        with patch("web.routers.auth.EMAIL_VERIFICATION_ENABLED", True):
+            r = raw_client.post(
+                "/api/auth/login", json={"email": new_email, "password": new_password}
+            )
+        assert r.status_code == 200
+        assert "access_token" in r.cookies
+
+
+# ---------------------------------------------------------------------------
+# End-to-end flow: forgot-password → reset-password → login
+# ---------------------------------------------------------------------------
+
+class TestForgotPasswordResetFlow:
+    """Full forgot-password → reset-password → login flow using a temporary DB.
+
+    send_password_reset_email is patched to capture the token; the captured
+    token is then submitted to /reset-password, verifying the whole chain.
+    """
+
+    def test_forgot_reset_then_login(self, raw_client, web_db):
+        old_password = "oldpassword1"
+        new_password = "newpassword2"
+        captured = {}
+
+        def _capture_token(to, token):
+            captured["token"] = token
+
+        # Pre-condition: insert an active, verified user
+        _insert_user(web_db, email=_EMAIL, password=old_password)
+
+        # Step 1: request a password reset — email helper should be called
+        with (
+            patch("web.routers.auth.EMAIL_VERIFICATION_ENABLED", True),
+            patch("web.routers.auth.send_password_reset_email", side_effect=_capture_token),
+        ):
+            r = raw_client.post(
+                "/api/auth/forgot-password", json={"email": _EMAIL}
+            )
+        assert r.status_code == 200
+        assert "token" in captured, "send_password_reset_email was not called"
+
+        token = captured["token"]
+
+        # The reset token must be stored in the DB
+        row = web_db.execute(
+            "SELECT password_reset_token FROM users WHERE email = ?", (_EMAIL,)
+        ).fetchone()
+        assert row["password_reset_token"] == token
+
+        # Step 2: consume the token with a new password
+        r = raw_client.post(
+            "/api/auth/reset-password",
+            json={"token": token, "password": new_password},
+        )
+        assert r.status_code == 200
+
+        row = web_db.execute(
+            "SELECT password_reset_token FROM users WHERE email = ?", (_EMAIL,)
+        ).fetchone()
+        assert row["password_reset_token"] is None
+
+        # Step 3: login with new password should succeed
+        with patch("web.routers.auth.EMAIL_VERIFICATION_ENABLED", False):
+            r = raw_client.post(
+                "/api/auth/login", json={"email": _EMAIL, "password": new_password}
+            )
+        assert r.status_code == 200
+        assert "access_token" in r.cookies
+
+        # Step 4: login with old password should fail
+        with patch("web.routers.auth.EMAIL_VERIFICATION_ENABLED", False):
+            r = raw_client.post(
+                "/api/auth/login", json={"email": _EMAIL, "password": old_password}
+            )
+        assert r.status_code == 401

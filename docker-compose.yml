@@ -28,6 +28,7 @@ services:
       - data:/app/data
       - ./api_keys.json:/app/api_keys.json:ro
       - ./email_config.json:/app/email_config.json:ro
+      - ./smtp_server.json:/app/smtp_server.json:ro
     # Ofelia reads these labels to schedule periodic jobs inside this container.
     labels:
       ofelia.enabled: "true"
