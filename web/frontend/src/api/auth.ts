@@ -44,7 +44,14 @@ export async function resetPassword(token: string, password: string) {
 }
 
 export async function getEmailEnabled() {
-  return apiFetch<{ email_enabled: boolean }>("/api/auth/email-enabled");
+  return apiFetch<{ email_enabled: boolean; contact_email: string }>("/api/auth/email-enabled");
+}
+
+export async function deleteAccount(password: string): Promise<void> {
+  return apiFetch<void>("/api/users/me", {
+    method: "DELETE",
+    body: JSON.stringify({ password }),
+  });
 }
 
 export async function changePassword(currentPassword: string, newPassword: string) {

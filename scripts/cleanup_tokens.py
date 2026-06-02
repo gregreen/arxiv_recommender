@@ -31,9 +31,10 @@ def main():
              AND email_verify_token_expires_at < ?""",
         (now,),
     )
+    print(f"Cleaned up {cur.rowcount} expired verification token(s).")
+
     con.commit()
     con.close()
-    print(f"Cleaned up {cur.rowcount} expired verification token(s).")
 
 
 if __name__ == "__main__":

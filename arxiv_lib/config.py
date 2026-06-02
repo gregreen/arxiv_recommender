@@ -275,6 +275,8 @@ VERIFICATION_EMAIL_FROM: str  = _email_config.get("email_from", "").strip()
 APP_BASE_URL:            str  = _email_config.get("app_base_url", "").rstrip("/")
 # "resend" (default) or "smtp"; controls which backend web/email.py uses.
 EMAIL_BACKEND:           str  = _email_config.get("backend", "resend")
+# Contact address shown in the Privacy panel; optional.
+CONTACT_EMAIL:           str  = _email_config.get("contact_email", "").strip()
 
 SMTP_CONFIG_FILE = os.path.join(BASE_DIR, "smtp_server.json")
 SMTP_CONFIG: dict = _load_json_file(SMTP_CONFIG_FILE, "smtp_server.json")

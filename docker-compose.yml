@@ -46,6 +46,10 @@ services:
       ofelia.job-exec.cleanup-tasks.schedule: "0 0 4 * * *"
       ofelia.job-exec.cleanup-tasks.command: "python3 scripts/cleanup_tasks.py"
       ofelia.job-exec.cleanup-tasks.timezone: "America/New_York"
+      # Cleanup page_events older than 365 days every day at 4:30 AM (NYC time)
+      ofelia.job-exec.cleanup-analytics.schedule: "0 30 4 * * *"
+      ofelia.job-exec.cleanup-analytics.command: "python3 scripts/cleanup_analytics.py"
+      ofelia.job-exec.cleanup-analytics.timezone: "America/New_York"
 
   # ── Metadata daemon ──────────────────────────────────────────────────────────
   meta-daemon:
