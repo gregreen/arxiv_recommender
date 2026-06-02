@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AppNav from "../components/AppNav";
-import { changePassword, deleteAccount } from "../api/auth";
+import { changePassword, deleteAccount, exportData } from "../api/auth";
 import { ApiError } from "../api/client";
 import { useAuth } from "../AuthContext";
 
@@ -23,6 +23,11 @@ export default function ChangePasswordPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  // Data export
+  const [exportPassword, setExportPassword] = useState("");
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportLoading, setExportLoading] = useState(false);
+
   const emailMatches =
     deleteEmail.trim().toLowerCase() === (user?.email ?? "").toLowerCase();
   const canSubmit =
@@ -34,6 +39,30 @@ export default function ChangePasswordPage() {
     setDeleteEmail("");
     setDeletePassword("");
     setDeleteError(null);
+  }
+
+  async function handleExportData(e: React.SyntheticEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setExportError(null);
+    setExportLoading(true);
+    try {
+      await exportData(exportPassword);
+      setExportPassword("");
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        if (err.status === 400) {
+          setExportError("Password is incorrect.");
+        } else if (err.status === 429) {
+          setExportError(err.message || "Export is limited to once every 7 days.");
+        } else {
+          setExportError(err.message || "An error occurred. Please try again.");
+        }
+      } else {
+        setExportError(err instanceof Error ? err.message : "An error occurred. Please try again.");
+      }
+    } finally {
+      setExportLoading(false);
+    }
   }
 
   async function handleDeleteAccount(e: React.SyntheticEvent<HTMLFormElement>) {
@@ -154,6 +183,44 @@ export default function ChangePasswordPage() {
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium rounded px-4 py-2 text-sm transition-colors"
             >
               {loading ? "Saving…" : "Change Password"}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {/* Download My Data */}
+      <div className="max-w-sm mx-auto mt-8 px-4 w-full">
+        <div className="bg-white shadow rounded-lg p-8">
+          <h2 className="text-lg font-semibold text-gray-800 mb-1">Download My Data</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Export a copy of all personal data associated with your account as a JSON file.
+            Exports are limited to once every 7 days.
+          </p>
+          {exportError && (
+            <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2">
+              {exportError}
+            </div>
+          )}
+          <form onSubmit={handleExportData} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Enter your password</label>
+              <input
+                type="password"
+                value={exportPassword}
+                onChange={(e) => setExportPassword(e.target.value)}
+                autoComplete="new-password"
+                readOnly
+                onFocus={(e) => e.currentTarget.removeAttribute("readonly")}
+                required
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={exportPassword.length === 0 || exportLoading}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium rounded px-4 py-2 text-sm transition-colors"
+            >
+              {exportLoading ? "Preparing…" : "Download my data"}
             </button>
           </form>
         </div>

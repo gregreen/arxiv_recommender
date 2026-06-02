@@ -13,9 +13,11 @@ PUT    /api/users/me/categories              — replace subscribed categories
 import json
 import re
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 
 from web.limiter import limiter
@@ -37,6 +39,12 @@ router = APIRouter(prefix="/users/me", tags=["users"])
 class DeleteAccountRequest(BaseModel):
     password: str
 
+
+class ExportRequest(BaseModel):
+    password: str
+
+
+_EXPORT_COOLDOWN_DAYS = 7
 _ADS_INPUT_CAP = 64
 
 
@@ -192,6 +200,120 @@ def delete_account(
     db.commit()
 
     response.delete_cookie("access_token")
+
+
+# ---------------------------------------------------------------------------
+# Data export (GDPR)
+# ---------------------------------------------------------------------------
+
+@router.post("/export", status_code=200)
+@limiter.limit("3/day")
+def export_user_data(
+    request: Request,
+    body: ExportRequest,
+    db: sqlite3.Connection = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Return a JSON export of all personal data held for the authenticated user."""
+    row = db.execute(
+        "SELECT password_hash, last_export_at FROM users WHERE id = ?", (user["id"],)
+    ).fetchone()
+    if row is None or not verify_password(body.password, row["password_hash"]):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password is incorrect.",
+        )
+
+    # Enforce per-user cooldown independent of IP-based limiter.
+    if row["last_export_at"]:
+        last = datetime.fromisoformat(row["last_export_at"].rstrip("Z")).replace(tzinfo=timezone.utc)
+        next_allowed = last + timedelta(days=_EXPORT_COOLDOWN_DAYS)
+        if datetime.now(timezone.utc) < next_allowed:
+            wait_seconds = int((next_allowed - datetime.now(timezone.utc)).total_seconds())
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Data export is limited to once every {_EXPORT_COOLDOWN_DAYS} days. "
+                       f"Please wait {wait_seconds} seconds before requesting another export.",
+            )
+
+    db.execute(
+        "UPDATE users SET last_export_at = datetime('now') WHERE id = ?", (user["id"],)
+    )
+    db.commit()
+
+    uid = user["id"]
+
+    # Account
+    account_row = db.execute(
+        "SELECT email, created_at FROM users WHERE id = ?", (uid,)
+    ).fetchone()
+    account = {"email": account_row["email"], "created_at": account_row["created_at"]}
+
+    # Library
+    library = [
+        {"arxiv_id": r["arxiv_id"], "liked": r["liked"], "added_at": r["added_at"]}
+        for r in db.execute(
+            "SELECT arxiv_id, liked, added_at FROM user_papers WHERE user_id = ? ORDER BY added_at DESC",
+            (uid,),
+        ).fetchall()
+    ]
+
+    # Categories
+    categories = [
+        r["category"]
+        for r in db.execute(
+            "SELECT category FROM user_categories WHERE user_id = ? ORDER BY category",
+            (uid,),
+        ).fetchall()
+    ]
+
+    # Search terms
+    search_terms = [
+        {"query": r["query"], "last_searched_at": r["last_searched_at"]}
+        for r in db.execute(
+            "SELECT query, last_searched_at FROM user_search_terms WHERE user_id = ? ORDER BY last_searched_at DESC",
+            (uid,),
+        ).fetchall()
+    ]
+
+    # Page events
+    page_events = [
+        {"page": r["page"], "ts": r["ts"]}
+        for r in db.execute(
+            "SELECT page, ts FROM page_events WHERE user_id = ? ORDER BY ts DESC",
+            (uid,),
+        ).fetchall()
+    ]
+
+    # Groups
+    groups = [
+        {"name": r["name"], "is_admin": bool(r["is_admin"]), "joined_at": r["joined_at"]}
+        for r in db.execute(
+            """
+            SELECT g.name, gm.is_admin, gm.joined_at
+              FROM group_members gm
+              JOIN groups g ON g.id = gm.group_id
+             WHERE gm.user_id = ?
+             ORDER BY gm.joined_at
+            """,
+            (uid,),
+        ).fetchall()
+    ]
+
+    export = {
+        "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "account": account,
+        "library": library,
+        "categories": categories,
+        "search_terms": search_terms,
+        "page_events": page_events,
+        "groups": groups,
+    }
+
+    return JSONResponse(
+        content=export,
+        headers={"Content-Disposition": 'attachment; filename="arxiv-recommender-data.json"'},
+    )
 
 
 # ---------------------------------------------------------------------------

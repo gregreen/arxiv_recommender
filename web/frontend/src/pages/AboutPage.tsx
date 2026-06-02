@@ -703,7 +703,8 @@ function PrivacyContent() {
         <ul className="list-disc list-inside space-y-1">
           <li><span className="font-medium">Erasure</span> — delete your account and all associated data from the{" "}
             <Link to="/account" className="text-blue-600 hover:underline">Account</Link> page.</li>
-          <li><span className="font-medium">Access &amp; portability</span> — request a copy of your data by contacting {contact}.</li>
+          <li><span className="font-medium">Access &amp; portability</span> — download a copy of all your data at any time from the{" "}
+            <Link to="/account" className="text-blue-600 hover:underline">Account</Link> page.</li>
           <li><span className="font-medium">Objection</span> — object to processing based on legitimate interest by contacting {contact}.</li>
           <li><span className="font-medium">Rectification</span> — correct inaccurate data by contacting {contact}.</li>
         </ul>

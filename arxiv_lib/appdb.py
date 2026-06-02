@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS users (
     email_verify_token_expires_at TEXT,
     email_verify_resend_count   INTEGER NOT NULL DEFAULT 0,
     email_verify_next_resend_at TEXT,
-    created_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+    last_export_at              TEXT
 );
 
 -- Per-user arXiv category subscriptions (used by daily cron to decide what to ingest)
@@ -251,6 +252,7 @@ def init_app_db(path: str = APP_DB_PATH()) -> None:
             "ALTER TABLE group_invites ADD COLUMN remaining_uses INTEGER NOT NULL DEFAULT 1",
             "ALTER TABLE task_queue ADD COLUMN not_before TEXT",
             "ALTER TABLE users ADD COLUMN tutorial_shown INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN last_export_at TEXT",
         ]:
             try:
                 con.execute(stmt)
