@@ -76,8 +76,8 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
 
   // Auto-refresh paused while search is active
   useEffect(() => {
-    fetchRecs(window);
     if (isSearchActive) return;
+    fetchRecs(window);
     const timer = setInterval(() => fetchRecs(window), 30_000);
     return () => clearInterval(timer);
   }, [window, fetchRecs, isSearchActive]);
