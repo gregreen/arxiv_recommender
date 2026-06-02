@@ -12,6 +12,7 @@ GET  /api/admin/papers                 — ingested papers, searchable
 GET  /api/admin/groups                 — list all groups with aggregate stats
 GET  /api/admin/groups/{group_id}      — group detail with members + pending invites
 DELETE /api/admin/groups/{group_id}    — delete a group (cascades to members/invites)
+GET  /api/admin/analytics              — page-visit telemetry summary
 """
 
 import json
@@ -407,4 +408,77 @@ def delete_group(
         (_admin["id"], "delete_group", group_id),
     )
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Analytics
+# ---------------------------------------------------------------------------
+
+@router.get("/analytics")
+def get_analytics(
+    days: int = Query(default=30, ge=1, le=365),
+    db: sqlite3.Connection = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    """Return page-visit telemetry for the last *days* days.
+
+    Response shape::
+
+        {
+            "summary": {"dau": int, "wau": int, "mau": int},
+            "daily":   [{"date": str, "users": int, "visits": int}, ...],
+            "pages":   [{"page": str, "visits": int, "users": int}, ...]
+        }
+
+    *dau* = distinct users today; *wau* = distinct users in the last 7 days;
+    *mau* = distinct users in the last 30 days (regardless of *days* parameter).
+    """
+    # Summary counts — always fixed windows regardless of the ?days parameter
+    summary_row = db.execute("""
+        SELECT
+            COUNT(DISTINCT CASE WHEN date(ts) = date('now') THEN user_id END)              AS dau,
+            COUNT(DISTINCT CASE WHEN ts >= datetime('now', '-7 days')  THEN user_id END)   AS wau,
+            COUNT(DISTINCT CASE WHEN ts >= datetime('now', '-30 days') THEN user_id END)   AS mau
+        FROM page_events
+    """).fetchone()
+
+    # Daily breakdown for the requested window
+    daily_rows = db.execute("""
+        SELECT
+            date(ts)               AS date,
+            COUNT(DISTINCT user_id) AS users,
+            COUNT(*)                AS visits
+        FROM page_events
+        WHERE ts >= datetime('now', ? || ' days')
+        GROUP BY date(ts)
+        ORDER BY date(ts) ASC
+    """, (f"-{days}",)).fetchall()
+
+    # Page breakdown for the requested window
+    page_rows = db.execute("""
+        SELECT
+            page,
+            COUNT(*)                AS visits,
+            COUNT(DISTINCT user_id) AS users
+        FROM page_events
+        WHERE ts >= datetime('now', ? || ' days')
+        GROUP BY page
+        ORDER BY visits DESC
+    """, (f"-{days}",)).fetchall()
+
+    return {
+        "summary": {
+            "dau": summary_row["dau"] or 0,
+            "wau": summary_row["wau"] or 0,
+            "mau": summary_row["mau"] or 0,
+        },
+        "daily": [
+            {"date": r["date"], "users": r["users"], "visits": r["visits"]}
+            for r in daily_rows
+        ],
+        "pages": [
+            {"page": r["page"], "visits": r["visits"], "users": r["users"]}
+            for r in page_rows
+        ],
+    }
 

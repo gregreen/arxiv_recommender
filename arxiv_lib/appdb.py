@@ -198,6 +198,19 @@ CREATE TABLE IF NOT EXISTS paper_lowres_proj (
     y           REAL NOT NULL,
     computed_at TEXT NOT NULL
 );
+
+-- Anonymous page-visit telemetry.
+-- page: normalised route path (numeric/UUID segments stripped, e.g. /groups/[id]/manage).
+-- user_id: FK to users; rows are deleted when the account is deleted (ON DELETE CASCADE).
+-- Retention: rows older than 365 days should be pruned periodically.
+CREATE TABLE IF NOT EXISTS page_events (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    page    TEXT    NOT NULL,
+    ts      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS page_events_ts      ON page_events(ts);
+CREATE INDEX IF NOT EXISTS page_events_user_ts ON page_events(user_id, ts);
 """
 
 

@@ -139,3 +139,35 @@ export function getAdminGroup(groupId: number): Promise<AdminGroupDetail> {
 export function deleteAdminGroup(groupId: number): Promise<void> {
   return apiFetch(`/api/admin/groups/${groupId}`, { method: "DELETE" });
 }
+
+// ---------------------------------------------------------------------------
+// Analytics
+// ---------------------------------------------------------------------------
+
+export interface AnalyticsSummary {
+  dau: number;
+  wau: number;
+  mau: number;
+}
+
+export interface AnalyticsDailyRow {
+  date: string;
+  users: number;
+  visits: number;
+}
+
+export interface AnalyticsPageRow {
+  page: string;
+  visits: number;
+  users: number;
+}
+
+export interface AdminAnalytics {
+  summary: AnalyticsSummary;
+  daily: AnalyticsDailyRow[];
+  pages: AnalyticsPageRow[];
+}
+
+export function getAdminAnalytics(days: number): Promise<AdminAnalytics> {
+  return apiFetch(`/api/admin/analytics?days=${days}`);
+}

@@ -4,10 +4,11 @@ import { useAuth } from "../AuthContext";
 import NavMenu from "../components/NavMenu";
 
 const NAV_ITEMS = [
-  { to: "users",  label: "Users" },
-  { to: "tasks",  label: "Tasks" },
-  { to: "papers", label: "Papers" },
-  { to: "groups", label: "Groups" },
+  { to: "users",     label: "Users"     },
+  { to: "tasks",     label: "Tasks"     },
+  { to: "papers",    label: "Papers"    },
+  { to: "groups",    label: "Groups"    },
+  { to: "analytics", label: "Analytics" },
 ] as const;
 
 export default function AdminLayout() {

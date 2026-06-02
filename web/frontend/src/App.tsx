@@ -12,6 +12,7 @@ import AdminUsersPage from "./pages/AdminUsersPage";
 import AdminTasksPage from "./pages/AdminTasksPage";
 import AdminPapersPage from "./pages/AdminPapersPage";
 import AdminGroupsPage from "./pages/AdminGroupsPage";
+import AdminAnalyticsPage from "./pages/AdminAnalyticsPage";
 import AboutPage from "./pages/AboutPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
@@ -20,6 +21,7 @@ import GroupManagePage from "./pages/GroupManagePage";
 import JoinGroupPage from "./pages/JoinGroupPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import ExplorePage from "./pages/ExplorePage";
+import { useAnalytics } from "./hooks/useAnalytics";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -36,90 +38,99 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/** Inner component — must be inside <BrowserRouter> so useLocation() works. */
+function AppRoutes() {
+  useAnalytics();
+  return (
+    <GroupsProvider>
+      <TourProvider>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/join-group" element={<JoinGroupPage />} />
+        <Route
+          path="/"
+          element={
+            <RequireAuth>
+              <MainLayout />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/library"
+          element={
+            <RequireAuth>
+              <LibraryPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/groups"
+          element={
+            <RequireAuth>
+              <GroupsPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/groups/new"
+          element={<Navigate to="/groups" replace />}
+        />
+        <Route
+          path="/groups/:groupId/manage"
+          element={
+            <RequireAuth>
+              <GroupManagePage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/account"
+          element={
+            <RequireAuth>
+              <ChangePasswordPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/explore"
+          element={
+            <RequireAuth>
+              <ExplorePage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <RequireAdmin>
+              <AdminLayout />
+            </RequireAdmin>
+          }
+        >
+          <Route index element={null} />
+          <Route path="users"     element={<AdminUsersPage />} />
+          <Route path="tasks"     element={<AdminTasksPage />} />
+          <Route path="papers"    element={<AdminPapersPage />} />
+          <Route path="groups"    element={<AdminGroupsPage />} />
+          <Route path="analytics" element={<AdminAnalyticsPage />} />
+        </Route>
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/about/:tab" element={<AboutPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+      </TourProvider>
+    </GroupsProvider>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
-      <GroupsProvider>
-        <TourProvider>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/verify-email" element={<VerifyEmailPage />} />
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-          <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/join-group" element={<JoinGroupPage />} />
-          <Route
-            path="/"
-            element={
-              <RequireAuth>
-                <MainLayout />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/library"
-            element={
-              <RequireAuth>
-                <LibraryPage />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/groups"
-            element={
-              <RequireAuth>
-                <GroupsPage />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/groups/new"
-            element={<Navigate to="/groups" replace />}
-          />
-          <Route
-            path="/groups/:groupId/manage"
-            element={
-              <RequireAuth>
-                <GroupManagePage />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/account"
-            element={
-              <RequireAuth>
-                <ChangePasswordPage />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/explore"
-            element={
-              <RequireAuth>
-                <ExplorePage />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/admin"
-            element={
-              <RequireAdmin>
-                <AdminLayout />
-              </RequireAdmin>
-            }
-          >
-            <Route index element={null} />
-            <Route path="users"   element={<AdminUsersPage />} />
-            <Route path="tasks"   element={<AdminTasksPage />} />
-            <Route path="papers"  element={<AdminPapersPage />} />
-            <Route path="groups"  element={<AdminGroupsPage />} />
-          </Route>
-          <Route path="/about" element={<AboutPage />} />
-          <Route path="/about/:tab" element={<AboutPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-        </TourProvider>
-      </GroupsProvider>
+      <AppRoutes />
     </BrowserRouter>
   );
 }

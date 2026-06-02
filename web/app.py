@@ -23,7 +23,7 @@ from slowapi.errors import RateLimitExceeded
 from arxiv_lib.appdb import init_app_db
 from arxiv_lib.config import SECRET_KEY
 from web.limiter import limiter
-from web.routers import admin, auth, explore, groups, papers, recommendations, search, users
+from web.routers import admin, analytics, auth, explore, groups, papers, recommendations, search, users
 
 
 @asynccontextmanager
@@ -86,6 +86,7 @@ def create_app() -> FastAPI:
     app.include_router(explore.router,         prefix="/api")
     app.include_router(admin.router,           prefix="/api")
     app.include_router(groups.router,          prefix="/api")
+    app.include_router(analytics.router,       prefix="/api")
 
     # Serve the React SPA for all non-API routes. Only mounted when the dist/
     # directory exists, so local development without a built frontend still works.
