@@ -7,7 +7,7 @@ import { formatTimestamp } from "../utils";
 // Column resize hook
 // ---------------------------------------------------------------------------
 
-type ColKey = "id" | "email" | "status" | "email_verified" | "admin" | "paper_count" | "import_count" | "model_trained_at" | "created_at" | "actions";
+type ColKey = "id" | "email" | "status" | "email_verified" | "admin" | "paper_count" | "import_count" | "last_active" | "model_trained_at" | "created_at" | "actions";
 
 const DEFAULT_WIDTHS: Record<ColKey, number> = {
   id:              55,
@@ -17,6 +17,7 @@ const DEFAULT_WIDTHS: Record<ColKey, number> = {
   admin:           75,
   paper_count:     75,
   import_count:    80,
+  last_active:     110,
   model_trained_at:170,
   created_at:     170,
   actions:        150,
@@ -57,6 +58,7 @@ function getValue(u: AdminUser, col: SortableCol): string | number {
     case "admin":           return u.is_admin ? 1 : 0;
     case "paper_count":     return u.paper_count;
     case "import_count":    return u.import_count;
+    case "last_active":     return u.last_active_at ?? "";
     case "model_trained_at": return u.model_trained_at ?? "";
     case "created_at":      return u.created_at;
   }
@@ -85,6 +87,7 @@ const COLS: { key: ColKey; label: string; sortable: boolean }[] = [
   { key: "admin",           label: "Admin",         sortable: true  },
   { key: "paper_count",     label: "Papers",        sortable: true  },
   { key: "import_count",    label: "Imports",       sortable: true  },
+  { key: "last_active",     label: "Last active",   sortable: true  },
   { key: "model_trained_at",label: "Model trained", sortable: true  },
   { key: "created_at",      label: "Registered",    sortable: true  },
   { key: "actions",         label: "",              sortable: false },
@@ -250,7 +253,7 @@ export default function AdminUsersPage() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {sorted.length === 0 ? (
-              <tr><td colSpan={10} className="px-4 py-6 text-center text-gray-400">No users match the current filters.</td></tr>
+              <tr><td colSpan={11} className="px-4 py-6 text-center text-gray-400">No users match the current filters.</td></tr>
             ) : sorted.map((u) => (
               <tr key={u.id} className="hover:bg-gray-50 transition-colors">
                 <td className="px-3 py-2.5 text-gray-400 tabular-nums truncate">{u.id}</td>
@@ -272,6 +275,7 @@ export default function AdminUsersPage() {
                 </td>
                 <td className="px-3 py-2.5 text-gray-600 tabular-nums">{u.paper_count}</td>
                 <td className="px-3 py-2.5 text-gray-600 tabular-nums">{u.import_count}</td>
+                <td className="px-3 py-2.5 text-gray-400 text-xs tabular-nums truncate">{u.last_active_at ?? "—"}</td>
                 <td className="px-3 py-2.5 text-gray-400 text-xs tabular-nums truncate">
                   {u.model_trained_at ? formatTimestamp(u.model_trained_at) : "—"}
                 </td>

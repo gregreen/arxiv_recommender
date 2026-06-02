@@ -7,6 +7,7 @@ export interface AdminUser {
   is_admin: boolean;
   email_verified: boolean;
   created_at: string;
+  last_active_at: string | null;
   paper_count: number;
   model_trained_at: string | null;
   import_count: number;

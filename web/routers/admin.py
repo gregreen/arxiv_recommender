@@ -44,6 +44,7 @@ def list_users(
             u.is_admin,
             u.email_verified,
             u.created_at,
+            u.last_active_at,
             COUNT(DISTINCT up.arxiv_id) AS paper_count,
             um.trained_at     AS model_trained_at,
             COUNT(DISTINCT il.id) AS import_count
@@ -62,6 +63,7 @@ def list_users(
             "is_admin":        bool(r["is_admin"]),
             "email_verified":  bool(r["email_verified"]),
             "created_at":      r["created_at"],
+            "last_active_at":  r["last_active_at"],
             "paper_count":     r["paper_count"],
             "model_trained_at": r["model_trained_at"],
             "import_count":    r["import_count"],
