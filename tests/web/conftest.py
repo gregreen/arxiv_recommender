@@ -46,7 +46,7 @@ def _build_app(web_db, override_auth: bool):
     app.dependency_overrides[get_db] = lambda: web_db
     if override_auth:
         user_row = web_db.execute(
-            "SELECT id, email, is_active, is_admin, email_verified FROM users WHERE id = ?",
+            "SELECT id, email, is_active, is_admin, email_verified, tutorial_shown FROM users WHERE id = ?",
             (_USER_ID,),
         ).fetchone()
         app.dependency_overrides[get_current_user] = lambda: user_row
@@ -83,7 +83,7 @@ def admin_client(web_db):
     app = create_app()
     app.dependency_overrides[get_db] = lambda: web_db
     admin_row = web_db.execute(
-        "SELECT id, email, is_active, is_admin, email_verified FROM users WHERE id = ?",
+        "SELECT id, email, is_active, is_admin, email_verified, tutorial_shown FROM users WHERE id = ?",
         (_USER_ID,),
     ).fetchone()
     app.dependency_overrides[get_current_user] = lambda: admin_row
