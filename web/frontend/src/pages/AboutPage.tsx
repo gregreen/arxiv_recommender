@@ -662,13 +662,14 @@ function PrivacyContent() {
         <h3 className="font-semibold text-gray-800 mb-1">What data we hold</h3>
         <ul className="list-disc list-inside space-y-1">
           <li>Your email address and a hashed copy of your password.</li>
-          <li>
-            Page visit events: the URL path you visited and the timestamp, linked to your
-            account.
-          </li>
           <li>Papers you have marked as relevant or irrelevant.</li>
           <li>arXiv category subscriptions you have configured.</li>
           <li>Groups you are a member of, and whether you are an admin of those groups.</li>
+          <li>
+            Analytics: the date of your most recent visit, and which pages you visited on
+            each day (not the full path history — only whether you visited a given page on
+            a given day). Older records are deleted automatically after 90 days.
+          </li>
         </ul>
       </div>
 
@@ -685,7 +686,7 @@ function PrivacyContent() {
       <div>
         <h3 className="font-semibold text-gray-800 mb-1">Retention</h3>
         <ul className="list-disc list-inside space-y-1">
-          <li>Page visit events are automatically deleted after 365 days.</li>
+          <li>Analytics records (page-visit dedup entries) are automatically deleted after 90 days.</li>
           <li>All other account data is retained until you delete your account.</li>
         </ul>
       </div>

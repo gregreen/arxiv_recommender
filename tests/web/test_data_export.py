@@ -84,7 +84,7 @@ def test_export_returns_json_attachment(export_client, export_db):
     assert resp.status_code == 200
     assert "attachment" in resp.headers.get("content-disposition", "")
     data = resp.json()
-    for key in ("exported_at", "account", "library", "categories", "search_terms", "page_events", "groups"):
+    for key in ("exported_at", "account", "library", "categories", "search_terms", "groups"):
         assert key in data, f"missing key: {key}"
 
 

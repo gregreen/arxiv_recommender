@@ -11,12 +11,11 @@ import {
 // Column resize hook (shared pattern from AdminUsersPage)
 // ---------------------------------------------------------------------------
 
-type DailyColKey = "date" | "users" | "visits";
+type DailyColKey = "date" | "visits";
 type PageColKey  = "page" | "visits" | "users";
 
 const DAILY_DEFAULT_WIDTHS: Record<DailyColKey, number> = {
   date:   160,
-  users:  110,
   visits: 110,
 };
 
@@ -153,9 +152,8 @@ export default function AdminAnalyticsPage() {
   const pageTableWidth  = Object.values(page.widths).reduce((a: number, b) => a + (b as number), 0);
 
   const DAILY_COLS: { key: DailyColKey; label: string }[] = [
-    { key: "date",   label: "Date"         },
-    { key: "users",  label: "Active users" },
-    { key: "visits", label: "Page visits"  },
+    { key: "date",   label: "Date"        },
+    { key: "visits", label: "Page visits" },
   ];
 
   const PAGE_COLS: { key: PageColKey; label: string }[] = [
@@ -252,13 +250,12 @@ export default function AdminAnalyticsPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {loading ? (
-                  <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-400">Loading…</td></tr>
+                  <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-400">Loading…</td></tr>
                 ) : sortedDaily.length === 0 ? (
-                  <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-400">No data for this period.</td></tr>
+                  <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-400">No data for this period.</td></tr>
                 ) : sortedDaily.map((row) => (
                   <tr key={row.date} className="hover:bg-gray-50 transition-colors">
                     <td className="px-3 py-2.5 tabular-nums text-gray-700">{row.date}</td>
-                    <td className="px-3 py-2.5 tabular-nums text-gray-600">{row.users}</td>
                     <td className="px-3 py-2.5 tabular-nums text-gray-600">{row.visits}</td>
                   </tr>
                 ))}

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-Delete page_events rows older than 365 days to honour the analytics data
-retention policy described in the Privacy notice.
+Delete page_stats_daily_users rows older than 90 days.
+
+The dedup table covers the longest analytics window (90 days).  Rows older
+than that are no longer needed for distinct-user counts.
+page_stats_daily (visit counters) is kept indefinitely — it is negligible in size.
 
 Usage:
     python scripts/cleanup_analytics.py
@@ -20,11 +23,11 @@ def main():
     init_app_db()
     con = get_connection()
     cur = con.execute(
-        "DELETE FROM page_events WHERE ts < datetime('now', '-365 days')"
+        "DELETE FROM page_stats_daily_users WHERE date < date('now', '-90 days')"
     )
     con.commit()
     con.close()
-    print(f"Pruned {cur.rowcount} page event(s) older than 365 days.")
+    print(f"Pruned {cur.rowcount} analytics dedup row(s) older than 90 days.")
 
 
 if __name__ == "__main__":

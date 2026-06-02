@@ -55,8 +55,23 @@ def record_event(
     user=Depends(get_current_user),
 ):
     page = _normalise_page(body.page)
+    # Update last-active timestamp for DAU/WAU/MAU.
     db.execute(
-        "INSERT INTO page_events (user_id, page) VALUES (?, ?)",
-        (user["id"], page),
+        "UPDATE users SET last_active_at = date('now') WHERE id = ?",
+        (user["id"],),
+    )
+    # Dedup insert: track whether this user has already been counted for this (date, page).
+    cur = db.execute(
+        "INSERT OR IGNORE INTO page_stats_daily_users (date, page, user_id) VALUES (date('now'), ?, ?)",
+        (page, user["id"]),
+    )
+    # Upsert visit counter.
+    db.execute(
+        """
+        INSERT INTO page_stats_daily (date, page, visits)
+        VALUES (date('now'), ?, 1)
+        ON CONFLICT (date, page) DO UPDATE SET visits = visits + 1
+        """,
+        (page,),
     )
     db.commit()

@@ -276,15 +276,6 @@ def export_user_data(
         ).fetchall()
     ]
 
-    # Page events
-    page_events = [
-        {"page": r["page"], "ts": r["ts"]}
-        for r in db.execute(
-            "SELECT page, ts FROM page_events WHERE user_id = ? ORDER BY ts DESC",
-            (uid,),
-        ).fetchall()
-    ]
-
     # Groups
     groups = [
         {"name": r["name"], "is_admin": bool(r["is_admin"]), "joined_at": r["joined_at"]}
@@ -306,7 +297,6 @@ def export_user_data(
         "library": library,
         "categories": categories,
         "search_terms": search_terms,
-        "page_events": page_events,
         "groups": groups,
     }
 
