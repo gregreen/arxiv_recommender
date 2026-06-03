@@ -79,7 +79,7 @@ export default function MainLayout() {
   }
 
   return (
-    <div className="flex flex-col h-screen overflow-x-hidden bg-gray-50">
+    <div className="flex flex-col h-screen bg-gray-50">
       <AppNav />
 
       {/* Two-pane body */}
