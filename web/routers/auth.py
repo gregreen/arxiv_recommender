@@ -19,7 +19,7 @@ import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr
 from limits import parse as _parse_limit
 
@@ -98,7 +98,7 @@ class ChangePasswordRequest(BaseModel):
 
 @router.post("/register", status_code=status.HTTP_202_ACCEPTED)
 @limiter.limit("5/hour")
-def register(request: Request, body: RegisterRequest, db: sqlite3.Connection = Depends(get_db)):
+def register(request: Request, body: RegisterRequest, background_tasks: BackgroundTasks, db: sqlite3.Connection = Depends(get_db)):
     existing = db.execute(
         "SELECT id FROM users WHERE email = ?", (body.email,)
     ).fetchone()
@@ -124,14 +124,7 @@ def register(request: Request, body: RegisterRequest, db: sqlite3.Connection = D
             (body.email, hash_password(body.password), token, expiry, next_resend),
         )
         db.commit()
-        try:
-            send_verification_email(body.email, token)
-        except RuntimeError as exc:
-            log.error("register: email send failed for %s: %s", body.email, exc)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Account created but verification email could not be sent. Contact the administrator.",
-            )
+        background_tasks.add_task(send_verification_email, body.email, token)
         return {"message": "Registration received. Please check your email to verify your account."}
     else:
         db.execute(
@@ -245,7 +238,7 @@ def verify_email(request: Request, token: str, db: sqlite3.Connection = Depends(
 
 @router.post("/resend-verification", status_code=status.HTTP_200_OK)
 @limiter.limit("5/hour")
-def resend_verification(request: Request, body: ResendVerificationRequest, db: sqlite3.Connection = Depends(get_db)):
+def resend_verification(request: Request, body: ResendVerificationRequest, background_tasks: BackgroundTasks, db: sqlite3.Connection = Depends(get_db)):
     # Always return 200 with the same message to prevent email enumeration.
     _generic_ok = {"message": "If that address is registered and awaiting verification, a new email has been sent."}
 
@@ -290,16 +283,7 @@ def resend_verification(request: Request, body: ResendVerificationRequest, db: s
         (new_token, new_expiry, new_count, new_next_resend, row["id"]),
     )
     db.commit()
-
-    try:
-        send_verification_email(body.email, new_token)
-    except RuntimeError as exc:
-        log.error("resend_verification: email send failed for %s: %s", body.email, exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not send verification email. Please try again later.",
-        )
-
+    background_tasks.add_task(send_verification_email, body.email, new_token)
     return _generic_ok
 
 
@@ -336,6 +320,7 @@ def patch_me(
 def forgot_password(
     request: Request,
     body: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
     db: sqlite3.Connection = Depends(get_db),
 ):
     # Always return 200 with a generic message to prevent email enumeration.
@@ -360,16 +345,7 @@ def forgot_password(
         (token, expiry, row["id"]),
     )
     db.commit()
-
-    try:
-        send_password_reset_email(body.email, token)
-    except RuntimeError as exc:
-        log.error("forgot_password: email send failed for %s: %s", body.email, exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not send password reset email. Please try again later.",
-        )
-
+    background_tasks.add_task(send_password_reset_email, body.email, token)
     return _generic_ok
 
 

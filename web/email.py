@@ -76,12 +76,12 @@ def _send_via_smtp(to: str, subject: str, html: str) -> None:
     try:
         if use_ssl:
             ctx = __import__("ssl").create_default_context()
-            with smtplib.SMTP_SSL(host, port, context=ctx) as smtp:
+            with smtplib.SMTP_SSL(host, port, context=ctx, timeout=25) as smtp:
                 if authenticated:
                     smtp.login(username, password)
                 smtp.sendmail(VERIFICATION_EMAIL_FROM, to, msg.as_string())
         else:
-            with smtplib.SMTP(host, port) as smtp:
+            with smtplib.SMTP(host, port, timeout=25) as smtp:
                 if use_starttls:
                     smtp.starttls()
                 if authenticated:
@@ -133,7 +133,6 @@ def send_verification_email(to_address: str, token: str) -> None:
         _dispatch(to_address, "Verify your arXiv Recommender account", html)
     except Exception as exc:
         log.error("Failed to send verification email to %s: %s", to_address, exc)
-        raise RuntimeError(f"Failed to send verification email: {exc}") from exc
 
 
 def send_password_reset_email(to_address: str, token: str) -> None:
@@ -162,5 +161,4 @@ def send_password_reset_email(to_address: str, token: str) -> None:
         _dispatch(to_address, "Reset your arXiv Recommender password", html)
     except Exception as exc:
         log.error("Failed to send password reset email to %s: %s", to_address, exc)
-        raise RuntimeError(f"Failed to send password reset email: {exc}") from exc
 
