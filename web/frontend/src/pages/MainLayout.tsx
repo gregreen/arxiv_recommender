@@ -13,6 +13,8 @@ export default function MainLayout() {
   const [selectedLiked, setSelectedLiked] = useState<number | null>(null);
   const [selectedScore, setSelectedScore] = useState<number | null>(null);
   const [activeGroupId, setActiveGroupId] = useState<number | null>(null);
+  const [showGroupDropdown, setShowGroupDropdown] = useState(false);
+  const groupDropdownRef = useRef<HTMLDivElement>(null);
   // Liked map: initialised from the server on mount so previously-liked papers
   // show the correct colour immediately, then updated on every user interaction.
   const [likedCache, setLikedCache] = useState<Record<string, number>>({});
@@ -33,6 +35,17 @@ export default function MainLayout() {
       setActiveGroupId(null);
     }
   }, [groups, activeGroupId]);
+
+  // Close group dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (groupDropdownRef.current && !groupDropdownRef.current.contains(e.target as Node)) {
+        setShowGroupDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Push a history entry when opening the detail panel so the browser back
   // gesture closes it instead of leaving the page.
@@ -90,9 +103,9 @@ export default function MainLayout() {
           ${selectedArxivId !== null ? "-translate-x-full" : "translate-x-0"}`}>
           {/* Group/personal switcher — only shown when user is in at least one group */}
           {groups.length > 0 && (
-            <div id="tour-group-switcher" className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-200 bg-white shrink-0 overflow-x-auto">
+            <div id="tour-group-switcher" className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-200 bg-white shrink-0">
               <button
-                onClick={() => setActiveGroupId(null)}
+                onClick={() => { setActiveGroupId(null); setShowGroupDropdown(false); }}
                 className={`px-3 py-1 rounded text-sm font-medium whitespace-nowrap transition-colors ${
                   activeGroupId === null
                     ? "bg-blue-600 text-white"
@@ -101,19 +114,60 @@ export default function MainLayout() {
               >
                 Personal
               </button>
-              {groups.map((g) => (
+
+              {/* Single group: direct button (original behaviour) */}
+              {groups.length === 1 && (
                 <button
-                  key={g.id}
-                  onClick={() => setActiveGroupId(g.id)}
-                  className={`px-3 py-1 rounded text-sm font-medium whitespace-nowrap transition-colors ${
-                    activeGroupId === g.id
+                  onClick={() => setActiveGroupId(groups[0].id)}
+                  className={`px-3 py-1 rounded text-sm font-medium whitespace-nowrap transition-colors max-w-[180px] truncate ${
+                    activeGroupId === groups[0].id
                       ? "bg-blue-600 text-white"
                       : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                   }`}
                 >
-                  {g.name}
+                  {groups[0].name}
                 </button>
-              ))}
+              )}
+
+              {/* Multiple groups: dropdown trigger */}
+              {groups.length > 1 && (
+                <div ref={groupDropdownRef} className="relative">
+                  <button
+                    onClick={() => setShowGroupDropdown((v) => !v)}
+                    className={`flex items-center gap-1 px-3 py-1 rounded text-sm font-medium whitespace-nowrap transition-colors max-w-[180px] ${
+                      activeGroupId !== null
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    }`}
+                  >
+                    <span className="truncate">
+                      {activeGroupId !== null
+                        ? (groups.find((g) => g.id === activeGroupId)?.name ?? "Groups")
+                        : "Groups"}
+                    </span>
+                    <svg className="w-3 h-3 shrink-0" viewBox="0 0 10 6" fill="currentColor">
+                      <path d="M0 0l5 6 5-6z" />
+                    </svg>
+                  </button>
+                  {showGroupDropdown && (
+                    <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded shadow-lg min-w-[160px] py-1">
+                      {groups.map((g) => (
+                        <button
+                          key={g.id}
+                          onClick={() => { setActiveGroupId(g.id); setShowGroupDropdown(false); }}
+                          className={`w-full text-left px-3 py-1.5 text-sm truncate transition-colors ${
+                            activeGroupId === g.id
+                              ? "bg-blue-50 text-blue-700 font-medium"
+                              : "text-gray-700 hover:bg-gray-100"
+                          }`}
+                        >
+                          {g.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
           <RecommendationList
