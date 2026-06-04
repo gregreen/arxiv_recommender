@@ -93,6 +93,9 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
       const data = await searchPapers(trimmed);
       setSearchResultsByWindow(data);
       setIsSearchActive(true);
+      if (data.kind === "semantic") {
+        setWindow("month");
+      }
     } catch (err: unknown) {
       setSearchError(err instanceof Error ? err.message : "Search failed");
       setSearchResultsByWindow(null);
