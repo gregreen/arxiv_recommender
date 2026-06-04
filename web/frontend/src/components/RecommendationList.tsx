@@ -68,10 +68,9 @@ export default function RecommendationList({ selectedArxivId, onSelect, likedCac
     [groupId, groupMethod],
   );
 
-  // Clear search and reset method when switching group context
+  // Clear search when switching group context
   useEffect(() => {
     clearSearch();
-    setGroupMethod("softmax_sum");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId]);
 
