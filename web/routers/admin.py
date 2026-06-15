@@ -448,12 +448,14 @@ def get_analytics(
     # Daily visit counts for the requested window
     daily_rows = db.execute("""
         SELECT
-            date,
-            SUM(visits) AS visits
-        FROM page_stats_daily
-        WHERE date >= date('now', ? || ' days')
-        GROUP BY date
-        ORDER BY date ASC
+            p.date,
+            SUM(p.visits)               AS visits,
+            COUNT(DISTINCT u.user_id)   AS users
+        FROM page_stats_daily p
+        LEFT JOIN page_stats_daily_users u USING (date, page)
+        WHERE p.date >= date('now', ? || ' days')
+        GROUP BY p.date
+        ORDER BY p.date ASC
     """, (f"-{days}",)).fetchall()
 
     # Page breakdown: visits from counter table, distinct users from dedup table
@@ -476,7 +478,7 @@ def get_analytics(
             "mau": summary_row["mau"] or 0,
         },
         "daily": [
-            {"date": r["date"], "visits": r["visits"]}
+            {"date": r["date"], "visits": r["visits"], "users": r["users"]}
             for r in daily_rows
         ],
         "pages": [

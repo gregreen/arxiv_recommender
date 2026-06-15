@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import * as d3 from "d3";
 import {
   getAdminAnalytics,
   type AdminAnalytics,
@@ -11,13 +12,7 @@ import {
 // Column resize hook (shared pattern from AdminUsersPage)
 // ---------------------------------------------------------------------------
 
-type DailyColKey = "date" | "visits";
-type PageColKey  = "page" | "visits" | "users";
-
-const DAILY_DEFAULT_WIDTHS: Record<DailyColKey, number> = {
-  date:   160,
-  visits: 110,
-};
+type PageColKey = "page" | "visits" | "users";
 
 const PAGE_DEFAULT_WIDTHS: Record<PageColKey, number> = {
   page:   300,
@@ -45,8 +40,210 @@ function useResizableColumns<K extends string>(defaults: Record<K, number>) {
 }
 
 // ---------------------------------------------------------------------------
-// Sort helpers
+// Daily activity chart (D3, dual-axis: visits left, users right)
 // ---------------------------------------------------------------------------
+
+const CHART_HEIGHT = 220;
+const MARGIN = { top: 12, right: 54, bottom: 36, left: 54 };
+
+function DailyActivityChart({
+  data,
+  loading,
+}: {
+  data: AnalyticsDailyRow[];
+  loading: boolean;
+}) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [tooltip, setTooltip] = useState<{
+    date: string; visits: number; users: number; x: number;
+  } | null>(null);
+
+  const width = 700;
+
+  const innerW = width - MARGIN.left - MARGIN.right;
+  const innerH = CHART_HEIGHT - MARGIN.top - MARGIN.bottom;
+
+  const xScale = useMemo(() => {
+    if (data.length === 0) return null;
+    return d3.scalePoint<string>()
+      .domain(data.map((d) => d.date))
+      .range([0, innerW]);
+  }, [data, innerW]);
+
+  const yVisits = useMemo(() => {
+    if (data.length === 0) return null;
+    return d3.scaleLinear()
+      .domain([0, d3.max(data, (d) => d.visits)! * 1.15])
+      .range([innerH, 0]).nice();
+  }, [data, innerH]);
+
+  const yUsers = useMemo(() => {
+    if (data.length === 0) return null;
+    return d3.scaleLinear()
+      .domain([0, d3.max(data, (d) => d.users)! * 1.15])
+      .range([innerH, 0]).nice();
+  }, [data, innerH]);
+
+  const lineVisits = useMemo(() =>
+    d3.line<AnalyticsDailyRow>()
+      .x((d) => xScale!(d.date)!)
+      .y((d) => yVisits!(d.visits)),
+    [xScale, yVisits],
+  );
+
+  const lineUsers = useMemo(() =>
+    d3.line<AnalyticsDailyRow>()
+      .x((d) => xScale!(d.date)!)
+      .y((d) => yUsers!(d.users)),
+    [xScale, yUsers],
+  );
+
+  const clipId = useMemo(() => `clip-${Math.random().toString(36).slice(2)}`, []);
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+        <div className="h-[220px] bg-gray-100 rounded animate-pulse" />
+      </div>
+    );
+  }
+
+  if (!xScale || !yVisits || !yUsers || data.length === 0) {
+    return (
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 text-center text-gray-400 py-12">
+        No data for this period.
+      </div>
+    );
+  }
+
+  // Show a subset of x-axis ticks so they don't overlap
+  const tickInterval = Math.max(1, Math.floor(data.length / 12));
+  const xTicks = data.filter((_, i) => i % tickInterval === 0);
+
+  /** Format "2026-06-15" → "15.06." */
+  function fmtDate(iso: string) {
+    const parts = iso.split("-");
+    return `${parts[2]}.${parts[1]}.`;
+  }
+
+  return (
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 relative">
+      <svg ref={svgRef} viewBox={`0 0 ${width} ${CHART_HEIGHT}`} className="w-full" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <clipPath id={clipId}>
+            <rect x={-2} y={-4} width={innerW + 4} height={innerH + 6} />
+          </clipPath>
+        </defs>
+
+        {/* Grid lines + lines (clipped, translated to margins) */}
+        <g clipPath={`url(#${clipId})`} transform={`translate(${MARGIN.left}, ${MARGIN.top})`}>
+          {yVisits.ticks(5).map((t) => (
+            <line key={t} x1={0} x2={innerW}
+                  y1={yVisits(t)} y2={yVisits(t)}
+                  stroke="#e5e7eb" strokeWidth={0.5} />
+          ))}
+          <path d={lineVisits(data)!} fill="none" stroke="#3b82f6" strokeWidth={1.8} />
+          <path d={lineUsers(data)!}  fill="none" stroke="#f97316" strokeWidth={1.8} />
+        </g>
+
+        {/* Hover dots */}
+        {hovered && xScale(hovered) != null && (() => {
+          const d = data.find((r) => r.date === hovered)!;
+          return (
+            <>
+              <circle cx={MARGIN.left + xScale(hovered)!} cy={MARGIN.top + yVisits(d.visits)}
+                      r={3.5} fill="#3b82f6" stroke="#fff" strokeWidth={1.5} />
+              <circle cx={MARGIN.left + xScale(hovered)!} cy={MARGIN.top + yUsers(d.users)}
+                      r={3.5} fill="#f97316" stroke="#fff" strokeWidth={1.5} />
+            </>
+          );
+        })()}
+
+        {/* X axis */}
+        {xTicks.map((d) => (
+          <text key={d.date}
+                x={MARGIN.left + xScale(d.date)!}
+                y={innerH + MARGIN.top + 16}
+                textAnchor="middle"
+                className="fill-gray-400" fontSize={10} fontFamily="monospace">
+            {fmtDate(d.date)}
+          </text>
+        ))}
+
+        {/* Y axis left (visits) */}
+        {yVisits.ticks(5).map((t) => (
+          <text key={t} x={MARGIN.left - 6} y={yVisits(t) + MARGIN.top + 3}
+                textAnchor="end" className="fill-gray-500" fontSize={10}>
+            {t}
+          </text>
+        ))}
+        <text x={MARGIN.left - 32} y={MARGIN.top + innerH / 2}
+              textAnchor="middle" className="fill-blue-600" fontSize={10} fontWeight={600}
+              transform={`rotate(-90, ${MARGIN.left - 32}, ${MARGIN.top + innerH / 2})`}>
+          visits
+        </text>
+
+        {/* Y axis right (users) */}
+        {yUsers.ticks(5).map((t) => (
+          <text key={t} x={width - MARGIN.right + 6} y={yUsers(t) + MARGIN.top + 3}
+                textAnchor="start" className="fill-gray-500" fontSize={10}>
+            {t}
+          </text>
+        ))}
+        <text x={width - MARGIN.right + 32} y={MARGIN.top + innerH / 2}
+              textAnchor="middle" className="fill-orange-600" fontSize={10} fontWeight={600}
+              transform={`rotate(90, ${width - MARGIN.right + 32}, ${MARGIN.top + innerH / 2})`}>
+          users
+        </text>
+
+        {/* Invisible hover bars */}
+        {data.map((d) => (
+          <rect key={d.date}
+                x={MARGIN.left + (xScale(d.date) ?? 0) - (innerW / data.length) / 2}
+                y={MARGIN.top}
+                width={innerW / data.length}
+                height={innerH}
+                fill="transparent"
+                onMouseEnter={(e) => {
+                  setHovered(d.date);
+                  const rect = e.currentTarget as SVGRectElement;
+                  const svgRect = svgRef.current!.getBoundingClientRect();
+                  const cx = rect.getBoundingClientRect().left - svgRect.left + rect.getBoundingClientRect().width / 2;
+                  setTooltip({ date: d.date, visits: d.visits, users: d.users, x: cx });
+                }}
+                onMouseLeave={() => { setHovered(null); setTooltip(null); }}
+          />
+        ))}
+      </svg>
+
+      {/* Tooltip */}
+      {tooltip && (
+        <div
+          className="absolute pointer-events-none bg-gray-900 text-white text-xs rounded px-2.5 py-1.5 shadow z-10 whitespace-nowrap"
+          style={{ left: tooltip.x, top: 8, transform: "translate(-50%, 0)" }}
+        >
+          <div className="font-medium">{tooltip.date}</div>
+          <div>
+            <span className="text-blue-300">{tooltip.visits} visits</span>
+            {" · "}
+            <span className="text-orange-300">{tooltip.users} users</span>
+          </div>
+        </div>
+      )}
+
+      {/* Legend */}
+      <div className="flex justify-center gap-6 mt-1 text-xs text-gray-500">
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-0.5 bg-blue-500" /> Page visits
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-0.5 bg-orange-500" /> Unique users
+        </span>
+      </div>
+    </div>
+  );
+}
 
 type SortDir = "asc" | "desc";
 
@@ -106,15 +303,10 @@ export default function AdminAnalyticsPage() {
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
 
-  // Daily table sort
-  const [dailySortCol, setDailySortCol] = useState<DailyColKey>("date");
-  const [dailySortDir, setDailySortDir] = useState<SortDir>("desc");
-
   // Pages table sort
   const [pageSortCol, setPageSortCol] = useState<PageColKey>("visits");
   const [pageSortDir, setPageSortDir] = useState<SortDir>("desc");
 
-  const daily = useResizableColumns<DailyColKey>(DAILY_DEFAULT_WIDTHS);
   const page  = useResizableColumns<PageColKey>(PAGE_DEFAULT_WIDTHS);
 
   useEffect(() => {
@@ -126,11 +318,6 @@ export default function AdminAnalyticsPage() {
       .finally(() => setLoading(false));
   }, [days]);
 
-  function handleDailySortClick(col: DailyColKey) {
-    if (col === dailySortCol) setDailySortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setDailySortCol(col); setDailySortDir("asc"); }
-  }
-
   function handlePageSortClick(col: PageColKey) {
     if (col === pageSortCol) setPageSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setPageSortCol(col); setPageSortDir("asc"); }
@@ -141,20 +328,11 @@ export default function AdminAnalyticsPage() {
     return <span className="ml-1">{dir === "asc" ? "↑" : "↓"}</span>;
   }
 
-  const sortedDaily: AnalyticsDailyRow[] = data
-    ? sortBy(data.daily, dailySortCol, dailySortDir)
-    : [];
   const sortedPages: AnalyticsPageRow[] = data
     ? sortBy(data.pages, pageSortCol, pageSortDir)
     : [];
 
-  const dailyTableWidth = Object.values(daily.widths).reduce((a: number, b) => a + (b as number), 0);
-  const pageTableWidth  = Object.values(page.widths).reduce((a: number, b) => a + (b as number), 0);
-
-  const DAILY_COLS: { key: DailyColKey; label: string }[] = [
-    { key: "date",   label: "Date"        },
-    { key: "visits", label: "Page visits" },
-  ];
+  const pageTableWidth = Object.values(page.widths).reduce((a: number, b) => a + (b as number), 0);
 
   const PAGE_COLS: { key: PageColKey; label: string }[] = [
     { key: "page",   label: "Page"         },
@@ -216,52 +394,17 @@ export default function AdminAnalyticsPage() {
           </div>
         )}
 
-        {/* Daily active users table */}
+        {/* Daily activity chart */}
         <div>
           <h2 className="text-base font-semibold text-gray-700 mb-2">
             Daily activity
             {!loading && data && (
               <span className="ml-2 text-sm font-normal text-gray-400">
-                (last {days} days, {sortedDaily.length} rows)
+                (last {days} days, {data.daily.length} rows)
               </span>
             )}
           </h2>
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-x-auto">
-            <table className="text-sm" style={{ tableLayout: "fixed", width: dailyTableWidth + "px", minWidth: "100%" }}>
-              <colgroup>
-                {DAILY_COLS.map(({ key }) => <col key={key} style={{ width: daily.widths[key] + "px" }} />)}
-              </colgroup>
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  {DAILY_COLS.map(({ key, label }) => (
-                    <th
-                      key={key}
-                      onClick={() => handleDailySortClick(key)}
-                      className="relative px-3 py-3 text-left font-medium text-gray-600 cursor-pointer hover:bg-gray-100 select-none overflow-hidden"
-                    >
-                      <span className="truncate">
-                        {label}
-                        <SortIcon active={dailySortCol === key} dir={dailySortDir} />
-                      </span>
-                      <ResizeHandle col={key} onDragStart={daily.onDragStart} />
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {loading ? (
-                  <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-400">Loading…</td></tr>
-                ) : sortedDaily.length === 0 ? (
-                  <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-400">No data for this period.</td></tr>
-                ) : sortedDaily.map((row) => (
-                  <tr key={row.date} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-3 py-2.5 tabular-nums text-gray-700">{row.date}</td>
-                    <td className="px-3 py-2.5 tabular-nums text-gray-600">{row.visits}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DailyActivityChart data={data?.daily ?? []} loading={loading} />
         </div>
 
         {/* Page breakdown table */}

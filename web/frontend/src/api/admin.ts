@@ -154,6 +154,7 @@ export interface AnalyticsSummary {
 export interface AnalyticsDailyRow {
   date: string;
   visits: number;
+  users: number;
 }
 
 export interface AnalyticsPageRow {
