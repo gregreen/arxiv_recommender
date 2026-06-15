@@ -280,3 +280,17 @@ CONTACT_EMAIL:           str  = _email_config.get("contact_email", "").strip()
 
 SMTP_CONFIG_FILE = os.path.join(BASE_DIR, "smtp_server.json")
 SMTP_CONFIG: dict = _load_json_file(SMTP_CONFIG_FILE, "smtp_server.json")
+
+# ---------------------------------------------------------------------------
+# Search score calibration (SHASH distribution)
+# ---------------------------------------------------------------------------
+# Parameters of the Sinh-Arcsinh (SHASH) distribution fitted to per-paper
+# keyword-vs-random-paper cosine similarities by
+#   python experiments/search_score_calibration.py
+# cos_to_search_score() in search.py evaluates the SHASH CDF directly to
+# produce ln P(random similarity > X).  To update these values, paste the
+# "shash_params" block from the calibration script output here.
+SEARCH_SCORE_SHASH_MU      = 0.49463512999670045
+SEARCH_SCORE_SHASH_SIGMA   = 0.05507704576444358
+SEARCH_SCORE_SHASH_DELTA   = 0.9858499228105637
+SEARCH_SCORE_SHASH_EPSILON = 0.12381640338337489

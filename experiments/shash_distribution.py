@@ -137,7 +137,8 @@ def shash_logpdf(x, mu, sigma, delta, epsilon):
     # Using np.logaddexp(C, -C) - np.log(2) is a stable way to compute log(cosh(C))
     log_normalization = np.log(delta) - np.log(sigma) - 0.5 * np.log(2 * np.pi * (1 + w**2))
     log_hyperbolic = np.logaddexp(C, -C) - np.log(2)
-    print(mu, sigma, delta, epsilon, np.max(np.abs(C)))
+    # Clip |C| to prevent sinh overflow during optimisation.
+    C = np.clip(C, -250.0, 250.0)
     log_exponential = -0.5 * np.sinh(C)**2
     
     return log_normalization + log_hyperbolic + log_exponential

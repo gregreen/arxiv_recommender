@@ -25,6 +25,7 @@ from arxiv_lib.search import (
     SearchEmbeddingError,
     _cosine_similarity,
     _embed_query,
+    cosine_to_search_score,
     lookup_paper_by_id,
     search_papers,
 )
@@ -291,3 +292,82 @@ class TestLookupPaperById:
 
         model.score_embeddings.assert_not_called()
         assert result["score"] is None
+
+
+# ---------------------------------------------------------------------------
+# cosine_to_search_score
+# ---------------------------------------------------------------------------
+
+class TestCosineToSearchScore:
+    """Tests for the SHASH-based cosine→search-score conversion."""
+
+    @staticmethod
+    def _score(val) -> np.ndarray:
+        return cosine_to_search_score(np.array(val))
+
+    # -- shape preservation -------------------------------------------------
+
+    def test_scalar_in_scalar_out(self):
+        result = self._score(0.5)
+        # scipy.stats.norm.cdf may return a numpy scalar rather than a 0-d
+        # ndarray, but the shape should still be ().
+        assert np.shape(result) == ()
+        assert isinstance(result, (np.ndarray, np.floating))
+
+    def test_1d_in_1d_out(self):
+        result = self._score([0.1, 0.5, 0.9])
+        assert result.shape == (3,)
+
+    def test_2d_in_2d_out(self):
+        result = self._score([[0.1, 0.5], [0.3, 0.7]])
+        assert result.shape == (2, 2)
+
+    # -- no NaN / Inf in normal range ---------------------------------------
+
+    def test_no_nan_inf_normal_range(self):
+        cos = np.linspace(-1, 1, 10001)
+        result = cosine_to_search_score(cos)
+        assert not np.any(np.isnan(result))
+        assert not np.any(np.isinf(result))
+
+    def test_no_nan_inf_edges(self):
+        result = self._score([-1.0, 0.0, 1.0])
+        assert not np.any(np.isnan(result))
+        assert not np.any(np.isinf(result))
+
+    # -- out-of-range clipping -----------------------------------------------
+
+    def test_above_one_clipped(self):
+        assert self._score(1.0) == self._score(1.0001)
+
+    def test_below_neg_one_clipped(self):
+        assert self._score(-1.0) == self._score(-1.0001)
+
+    def test_out_of_range_no_nan(self):
+        result = self._score([-2.0, -1.0001, 1.0001, 2.0])
+        assert not np.any(np.isnan(result))
+        assert not np.any(np.isinf(result))
+
+    # -- monotonicity --------------------------------------------------------
+
+    def test_monotonic(self):
+        cos = np.linspace(-1, 1, 1000)
+        scores = cosine_to_search_score(cos)
+        # Non-decreasing: at very low cosines the CDF fraction may be
+        # clipped to 1e-9, producing a flat floor.
+        assert np.all(np.diff(scores) >= 0)
+
+    # -- score range ---------------------------------------------------------
+
+    def test_all_scores_le_zero(self):
+        cos = np.linspace(-1, 1, 10001)
+        scores = cosine_to_search_score(cos)
+        assert np.all(scores <= 0.0)
+
+    # -- vectorised ----------------------------------------------------------
+
+    def test_vectorised_same_as_elementwise(self):
+        cos = np.array([-0.5, 0.0, 0.3, 0.7, 1.0])
+        batch = cosine_to_search_score(cos)
+        elem  = np.array([float(self._score(c)) for c in cos])
+        assert np.allclose(batch, elem)
