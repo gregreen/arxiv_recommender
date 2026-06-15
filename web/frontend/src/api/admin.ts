@@ -165,6 +165,7 @@ export interface AnalyticsPageRow {
 
 export interface AdminAnalytics {
   summary: AnalyticsSummary;
+  first_date: string | null;
   daily: AnalyticsDailyRow[];
   pages: AnalyticsPageRow[];
 }

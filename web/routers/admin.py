@@ -428,12 +428,15 @@ def get_analytics(
 
         {
             "summary": {"dau": int, "wau": int, "mau": int},
-            "daily":   [{"date": str, "visits": int}, ...],
+            "first_date": str | null,
+            "daily":   [{"date": str, "visits": int, "users": int}, ...],
             "pages":   [{"page": str, "visits": int, "users": int}, ...]
         }
 
     *dau* = distinct users active today; *wau* = last 7 days; *mau* = last 30 days.
-    Daily rows show total visit counts only. Page rows include distinct-user counts
+    *first_date* is the earliest date in page_stats_daily (or null), used to avoid
+    zero-filling days before data collection began.
+    Daily rows show total visit and distinct-user counts. Page rows include distinct-user counts
     from the dedup table (accurate within the 90-day retention window).
     """
     # Summary counts — always fixed windows regardless of the ?days parameter
@@ -444,6 +447,12 @@ def get_analytics(
             COUNT(*) FILTER (WHERE last_active_at >= date('now', '-29 days'))  AS mau
         FROM users
     """).fetchone()
+
+    # Earliest date with any data (so we don't zero-fill before collection began)
+    first_date_row = db.execute(
+        "SELECT MIN(date) AS first_date FROM page_stats_daily"
+    ).fetchone()
+    first_date = first_date_row["first_date"] if first_date_row else None
 
     # Daily visit counts for the requested window
     daily_rows = db.execute("""
@@ -477,6 +486,7 @@ def get_analytics(
             "wau": summary_row["wau"] or 0,
             "mau": summary_row["mau"] or 0,
         },
+        "first_date": first_date,
         "daily": [
             {"date": r["date"], "visits": r["visits"], "users": r["users"]}
             for r in daily_rows

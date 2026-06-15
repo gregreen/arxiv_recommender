@@ -41,49 +41,90 @@ function useResizableColumns<K extends string>(defaults: Record<K, number>) {
 
 // ---------------------------------------------------------------------------
 // Daily activity chart (D3, dual-axis: visits left, users right)
+// Uses container-based sizing — no viewBox, text sized via CSS.
 // ---------------------------------------------------------------------------
 
-const CHART_HEIGHT = 220;
-const MARGIN = { top: 12, right: 54, bottom: 36, left: 54 };
+const CHART_ASPECT = 800 / 280;
+const MARGIN = { top: 12, right: 54, bottom: 64, left: 54 };
+
+function useContainerWidth() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(600);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) setWidth(entry.contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return { ref, width };
+}
 
 function DailyActivityChart({
   data,
+  firstDate,
+  days,
   loading,
 }: {
   data: AnalyticsDailyRow[];
+  firstDate: string | null;
+  days: number;
   loading: boolean;
 }) {
+  const { ref: containerRef, width: containerW } = useContainerWidth();
   const svgRef = useRef<SVGSVGElement>(null);
   const [hovered, setHovered] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<{
     date: string; visits: number; users: number; x: number;
   } | null>(null);
 
-  const width = 700;
+  const chartH = Math.max(180, containerW / CHART_ASPECT);
 
-  const innerW = width - MARGIN.left - MARGIN.right;
-  const innerH = CHART_HEIGHT - MARGIN.top - MARGIN.bottom;
+  // Zero-fill days between the window start (or firstDate, whichever later) and today.
+  const rows = useMemo(() => {
+    const today = new Date();
+    const windowStart = new Date(today);
+    windowStart.setDate(windowStart.getDate() - days + 1);
+    const cutoff = firstDate && firstDate > windowStart.toISOString().slice(0, 10)
+      ? new Date(firstDate) : windowStart;
+    const startDate = new Date(Math.max(cutoff.getTime(), windowStart.getTime()));
+    const dates: string[] = [];
+    const end = new Date(today);
+    for (let d = new Date(startDate); d <= end; d.setDate(d.getDate() + 1)) {
+      dates.push(d.toISOString().slice(0, 10));
+    }
+    const map = new Map(data.map((r) => [r.date, r]));
+    return dates.map((date) => {
+      const row = map.get(date);
+      return { date, visits: row?.visits ?? 0, users: row?.users ?? 0 };
+    });
+  }, [data, firstDate, days]);
+
+  const innerW = Math.max(100, containerW - MARGIN.left - MARGIN.right);
+  const innerH = Math.max(100, chartH - MARGIN.top - MARGIN.bottom);
 
   const xScale = useMemo(() => {
-    if (data.length === 0) return null;
+    if (rows.length === 0) return null;
     return d3.scalePoint<string>()
-      .domain(data.map((d) => d.date))
+      .domain(rows.map((d) => d.date))
       .range([0, innerW]);
-  }, [data, innerW]);
+  }, [rows, innerW]);
 
   const yVisits = useMemo(() => {
-    if (data.length === 0) return null;
+    if (rows.length === 0) return null;
     return d3.scaleLinear()
-      .domain([0, d3.max(data, (d) => d.visits)! * 1.15])
+      .domain([0, d3.max(rows, (d) => d.visits)! * 1.15])
       .range([innerH, 0]).nice();
-  }, [data, innerH]);
+  }, [rows, innerH]);
 
   const yUsers = useMemo(() => {
-    if (data.length === 0) return null;
+    if (rows.length === 0) return null;
     return d3.scaleLinear()
-      .domain([0, d3.max(data, (d) => d.users)! * 1.15])
+      .domain([0, d3.max(rows, (d) => d.users)! * 1.15])
       .range([innerH, 0]).nice();
-  }, [data, innerH]);
+  }, [rows, innerH]);
 
   const lineVisits = useMemo(() =>
     d3.line<AnalyticsDailyRow>()
@@ -103,33 +144,39 @@ function DailyActivityChart({
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+      <div ref={containerRef} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
         <div className="h-[220px] bg-gray-100 rounded animate-pulse" />
       </div>
     );
   }
 
-  if (!xScale || !yVisits || !yUsers || data.length === 0) {
+  if (!xScale || !yVisits || !yUsers || rows.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 text-center text-gray-400 py-12">
+      <div ref={containerRef} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 text-center text-gray-400 py-12">
         No data for this period.
       </div>
     );
   }
 
-  // Show a subset of x-axis ticks so they don't overlap
-  const tickInterval = Math.max(1, Math.floor(data.length / 12));
-  const xTicks = data.filter((_, i) => i % tickInterval === 0);
+  // Show a subset of x-axis tick labels (major ticks) so they don't overlap.
+  // Minor ticks (unlabeled) are drawn at every date.
+  const tickInterval = Math.max(2, Math.floor((rows.length - 1) / 7));
+  const xMajorTicks = rows.filter((_, i) => i % tickInterval === 0);
+  const tickLen = 6;
 
-  /** Format "2026-06-15" → "15.06." */
+  /** Format "2026-06-15" → "15 Jun" */
   function fmtDate(iso: string) {
-    const parts = iso.split("-");
-    return `${parts[2]}.${parts[1]}.`;
+    return new Date(iso + "T00:00:00").toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+    });
   }
 
+  const yTicks = yVisits.ticks(5);
+
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 relative">
-      <svg ref={svgRef} viewBox={`0 0 ${width} ${CHART_HEIGHT}`} className="w-full" preserveAspectRatio="xMidYMid meet">
+    <div ref={containerRef} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 relative">
+      <svg ref={svgRef} width={containerW} height={chartH} className="block">
         <defs>
           <clipPath id={clipId}>
             <rect x={-2} y={-4} width={innerW + 4} height={innerH + 6} />
@@ -138,18 +185,18 @@ function DailyActivityChart({
 
         {/* Grid lines + lines (clipped, translated to margins) */}
         <g clipPath={`url(#${clipId})`} transform={`translate(${MARGIN.left}, ${MARGIN.top})`}>
-          {yVisits.ticks(5).map((t) => (
+          {yTicks.map((t) => (
             <line key={t} x1={0} x2={innerW}
                   y1={yVisits(t)} y2={yVisits(t)}
                   stroke="#e5e7eb" strokeWidth={0.5} />
           ))}
-          <path d={lineVisits(data)!} fill="none" stroke="#3b82f6" strokeWidth={1.8} />
-          <path d={lineUsers(data)!}  fill="none" stroke="#f97316" strokeWidth={1.8} />
+          <path d={lineVisits(rows)!} fill="none" stroke="#3b82f6" strokeWidth={1.8} />
+          <path d={lineUsers(rows)!}  fill="none" stroke="#f97316" strokeWidth={1.8} />
         </g>
 
         {/* Hover dots */}
         {hovered && xScale(hovered) != null && (() => {
-          const d = data.find((r) => r.date === hovered)!;
+          const d = rows.find((r) => r.date === hovered)!;
           return (
             <>
               <circle cx={MARGIN.left + xScale(hovered)!} cy={MARGIN.top + yVisits(d.visits)}
@@ -160,49 +207,67 @@ function DailyActivityChart({
           );
         })()}
 
-        {/* X axis */}
-        {xTicks.map((d) => (
-          <text key={d.date}
-                x={MARGIN.left + xScale(d.date)!}
-                y={innerH + MARGIN.top + 16}
-                textAnchor="middle"
-                className="fill-gray-400" fontSize={10} fontFamily="monospace">
-            {fmtDate(d.date)}
-          </text>
+        {/* X-axis minor ticks (every date, unlabeled) */}
+        {rows.map((d) => (
+          <line key={`xt-${d.date}`}
+                x1={MARGIN.left + xScale(d.date)!}
+                x2={MARGIN.left + xScale(d.date)!}
+                y1={innerH + MARGIN.top}
+                y2={innerH + MARGIN.top + tickLen}
+                stroke="#9ca3af" strokeWidth={1} />
         ))}
+        {/* X-axis major ticks (labeled subset) */}
+        {xMajorTicks.map((d) => (
+          <line key={`xm-${d.date}`}
+                x1={MARGIN.left + xScale(d.date)!}
+                x2={MARGIN.left + xScale(d.date)!}
+                y1={innerH + MARGIN.top}
+                y2={innerH + MARGIN.top + tickLen * 2}
+                stroke="#6b7280" strokeWidth={1.5} />
+        ))}
+        {/* X-axis tick labels (rotated 90°, centered on tick) */}
+        {xMajorTicks.map((d) => {
+          const cx = MARGIN.left + xScale(d.date)!;
+          const cy = innerH + MARGIN.top + tickLen * 2 + 20;
+          return (
+            <text key={d.date}
+                  x={cx} y={cy}
+                  textAnchor="middle"
+                  className="fill-gray-400 text-[10px] sm:text-[11px] font-mono"
+                  transform={`translate(-3.5,4) rotate(90, ${cx}, ${cy})`}>
+              {fmtDate(d.date)}
+            </text>
+          );
+        })}
 
-        {/* Y axis left (visits) */}
-        {yVisits.ticks(5).map((t) => (
-          <text key={t} x={MARGIN.left - 6} y={yVisits(t) + MARGIN.top + 3}
-                textAnchor="end" className="fill-gray-500" fontSize={10}>
-            {t}
-          </text>
+        {/* Y-axis left (visits) */}
+        {yTicks.map((t) => (
+          <text key={`l-${t}`} x={MARGIN.left - 8} y={yVisits(t) + MARGIN.top + 4}
+                textAnchor="end" className="fill-gray-500 text-[10px] sm:text-[11px]">{t}</text>
         ))}
         <text x={MARGIN.left - 32} y={MARGIN.top + innerH / 2}
-              textAnchor="middle" className="fill-blue-600" fontSize={10} fontWeight={600}
+              textAnchor="middle" className="fill-blue-600 text-xs sm:text-sm font-semibold"
               transform={`rotate(-90, ${MARGIN.left - 32}, ${MARGIN.top + innerH / 2})`}>
           visits
         </text>
 
-        {/* Y axis right (users) */}
+        {/* Y-axis right (users) */}
         {yUsers.ticks(5).map((t) => (
-          <text key={t} x={width - MARGIN.right + 6} y={yUsers(t) + MARGIN.top + 3}
-                textAnchor="start" className="fill-gray-500" fontSize={10}>
-            {t}
-          </text>
+          <text key={`r-${t}`} x={containerW - MARGIN.right + 8} y={yUsers(t) + MARGIN.top + 4}
+                textAnchor="start" className="fill-gray-500 text-[10px] sm:text-[11px]">{t}</text>
         ))}
-        <text x={width - MARGIN.right + 32} y={MARGIN.top + innerH / 2}
-              textAnchor="middle" className="fill-orange-600" fontSize={10} fontWeight={600}
-              transform={`rotate(90, ${width - MARGIN.right + 32}, ${MARGIN.top + innerH / 2})`}>
+        <text x={containerW - MARGIN.right + 32} y={MARGIN.top + innerH / 2}
+              textAnchor="middle" className="fill-orange-600 text-xs sm:text-sm font-semibold"
+              transform={`rotate(90, ${containerW - MARGIN.right + 32}, ${MARGIN.top + innerH / 2})`}>
           users
         </text>
 
         {/* Invisible hover bars */}
-        {data.map((d) => (
+        {rows.map((d) => (
           <rect key={d.date}
-                x={MARGIN.left + (xScale(d.date) ?? 0) - (innerW / data.length) / 2}
+                x={MARGIN.left + (xScale(d.date) ?? 0) - (innerW / rows.length) / 2}
                 y={MARGIN.top}
-                width={innerW / data.length}
+                width={innerW / rows.length}
                 height={innerH}
                 fill="transparent"
                 onMouseEnter={(e) => {
@@ -395,7 +460,7 @@ export default function AdminAnalyticsPage() {
         )}
 
         {/* Daily activity chart */}
-        <div>
+        <div className="max-w-6xl">
           <h2 className="text-base font-semibold text-gray-700 mb-2">
             Daily activity
             {!loading && data && (
@@ -404,7 +469,7 @@ export default function AdminAnalyticsPage() {
               </span>
             )}
           </h2>
-          <DailyActivityChart data={data?.daily ?? []} loading={loading} />
+          <DailyActivityChart data={data?.daily ?? []} firstDate={data?.first_date ?? null} days={days} loading={loading} />
         </div>
 
         {/* Page breakdown table */}
