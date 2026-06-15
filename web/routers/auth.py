@@ -107,7 +107,7 @@ def register(request: Request, body: RegisterRequest, background_tasks: Backgrou
         return {"message": "Registration received. Please check your email to verify your account."}
     if len(body.password) < 8:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Password must be at least 8 characters.",
         )
 
@@ -359,7 +359,7 @@ def reset_password(
 ):
     if len(body.password) < 8:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Password must be at least 8 characters.",
         )
 
@@ -421,7 +421,7 @@ def change_password(
 
     if len(body.new_password) < 8:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="New password must be at least 8 characters.",
         )
 

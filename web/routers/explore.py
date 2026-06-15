@@ -106,7 +106,7 @@ def explore(
     if window not in RECOMMEND_TIME_WINDOWS:
         from fastapi import HTTPException, status
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid window {window!r}. Must be one of: {list(RECOMMEND_TIME_WINDOWS)}",
         )
 

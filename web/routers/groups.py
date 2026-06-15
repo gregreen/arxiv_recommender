@@ -213,14 +213,14 @@ def group_recommendations(
 
     if window not in RECOMMEND_TIME_WINDOWS:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid window {window!r}. Must be one of: {RECOMMEND_TIME_WINDOWS}",
         )
 
     supported_methods = ["softmax_sum", "average"]
     if method not in supported_methods:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid method {method!r}. Must be one of: {supported_methods}",
         )
 

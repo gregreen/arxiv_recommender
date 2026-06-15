@@ -56,7 +56,7 @@ def _validate_arxiv_id(arxiv_id: str) -> str:
         return validate_arxiv_id(arxiv_id)
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
 
@@ -524,7 +524,7 @@ def set_categories(
     invalid = [c for c in body.categories if c not in ARXIV_CATEGORIES]
     if invalid:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown arXiv categories: {invalid}. "
                    f"Supported: {sorted(ARXIV_CATEGORIES)}",
         )

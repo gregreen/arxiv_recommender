@@ -265,6 +265,7 @@ class TestGetOrTrainModel:
         with pytest.raises(NotEnoughDataError):
             get_or_train_model(app_db_con, _USER_ID)
 
+    @pytest.mark.filterwarnings("ignore:divide by zero encountered in log:RuntimeWarning")
     def test_returns_cached_model_without_retraining(self, app_db_con, data_dir):
         """A model with a matching hash is deserialized; user_models row count unchanged."""
         _insert_user(app_db_con)
