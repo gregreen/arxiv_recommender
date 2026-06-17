@@ -13,6 +13,7 @@ import AdminTasksPage from "./pages/AdminTasksPage";
 import AdminPapersPage from "./pages/AdminPapersPage";
 import AdminGroupsPage from "./pages/AdminGroupsPage";
 import AdminAnalyticsPage from "./pages/AdminAnalyticsPage";
+import AdminHealthPage from "./pages/AdminHealthPage";
 import AboutPage from "./pages/AboutPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
@@ -117,6 +118,7 @@ function AppRoutes() {
           <Route path="papers"    element={<AdminPapersPage />} />
           <Route path="groups"    element={<AdminGroupsPage />} />
           <Route path="analytics" element={<AdminAnalyticsPage />} />
+          <Route path="health"    element={<AdminHealthPage />} />
         </Route>
         <Route path="/about" element={<AboutPage />} />
         <Route path="/about/:tab" element={<AboutPage />} />

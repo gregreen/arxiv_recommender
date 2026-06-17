@@ -173,3 +173,33 @@ export interface AdminAnalytics {
 export function getAdminAnalytics(days: number): Promise<AdminAnalytics> {
   return apiFetch(`/api/admin/analytics?days=${days}`);
 }
+
+// ---------------------------------------------------------------------------
+// Health
+// ---------------------------------------------------------------------------
+
+export interface HealthCompletionTime {
+  completed_at: string;
+  duration_ms: number;
+}
+
+export interface HealthDaemon {
+  queue_size: number;
+  avg_completion_ms: number | null;
+  recent_failure_rate: number | null;
+  permanently_failed: number;
+  completion_times: HealthCompletionTime[];
+}
+
+export interface HealthMeta extends HealthDaemon {
+  stale_pending: number;
+}
+
+export interface AdminHealth {
+  embed: HealthDaemon;
+  meta: HealthMeta;
+}
+
+export function getAdminHealth(): Promise<AdminHealth> {
+  return apiFetch("/api/admin/health");
+}

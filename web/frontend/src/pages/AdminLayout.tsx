@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { to: "papers",    label: "Papers"    },
   { to: "groups",    label: "Groups"    },
   { to: "analytics", label: "Analytics" },
+  { to: "health",    label: "Health"    },
 ] as const;
 
 export default function AdminLayout() {

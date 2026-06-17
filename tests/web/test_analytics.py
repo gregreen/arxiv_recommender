@@ -150,12 +150,12 @@ def test_admin_analytics_response_shape(analytics_admin_client):
     assert "dau" in summary and "wau" in summary and "mau" in summary
 
 
-def test_admin_analytics_daily_rows_have_no_users_field(analytics_admin_client, event_client):
+def test_admin_analytics_daily_rows_have_users_field(analytics_admin_client, event_client):
     event_client.post("/api/analytics/event", json={"page": "/recommendations"})
     resp = analytics_admin_client.get("/api/admin/analytics?days=30")
     daily = resp.json()["daily"]
     assert len(daily) > 0
-    assert "users" not in daily[0]
+    assert "users" in daily[0]
     assert "visits" in daily[0]
 
 

@@ -497,3 +497,93 @@ def get_analytics(
         ],
     }
 
+
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
+
+_DAEMON_TYPES = ("embed", "fetch_meta")
+
+
+def _daemon_health(db: sqlite3.Connection, task_type: str) -> dict:
+    """Return health metrics for a single daemon task type."""
+
+    # Queue size
+    queue_size = db.execute(
+        "SELECT COUNT(*) FROM task_queue WHERE type=? AND status='pending'",
+        (task_type,),
+    ).fetchone()[0]
+
+    # Avg completion time (last 8 done tasks)
+    avg_row = db.execute("""
+        SELECT AVG(julianday(completed_at) - julianday(started_at)) * 86400.0
+        FROM task_queue
+        WHERE type=? AND status='done' AND started_at IS NOT NULL AND completed_at IS NOT NULL
+        ORDER BY completed_at DESC LIMIT 8
+    """, (task_type,)).fetchone()
+    avg_completion_ms = round(avg_row[0] * 1000) if avg_row and avg_row[0] is not None else None
+
+    # Recent failure rate (last 24h)
+    rate_row = db.execute("""
+        SELECT
+            COUNT(*) FILTER (WHERE status='failed') * 1.0 / NULLIF(COUNT(*), 0)
+        FROM task_queue
+        WHERE type=? AND status IN ('done','failed')
+          AND created_at >= datetime('now', '-1 day')
+    """, (task_type,)).fetchone()
+    recent_failure_rate = round(rate_row[0], 4) if rate_row and rate_row[0] is not None else None
+
+    # Permanently failed (all-time)
+    perm_failed = db.execute(
+        "SELECT COUNT(*) FROM task_queue WHERE type=? AND status='failed'",
+        (task_type,),
+    ).fetchone()[0]
+
+    # Completion times for the last 3 days (from the most recent completed task)
+    ct_rows = db.execute("""
+        SELECT completed_at,
+               (julianday(completed_at) - julianday(started_at)) * 86400.0 AS duration_sec
+        FROM task_queue
+        WHERE type=? AND status='done' AND completed_at IS NOT NULL AND started_at IS NOT NULL
+          AND completed_at >= COALESCE(
+            (SELECT DATE(MAX(completed_at), '-3 days') FROM task_queue WHERE type=? AND status='done'),
+            '1970-01-01'
+          )
+        ORDER BY completed_at ASC
+    """, (task_type, task_type)).fetchall()
+    completion_times = [
+        {"completed_at": r["completed_at"], "duration_ms": round(r["duration_sec"] * 1000)}
+        for r in ct_rows
+    ]
+
+    result = {
+        "queue_size":         queue_size,
+        "avg_completion_ms":  avg_completion_ms,
+        "recent_failure_rate": recent_failure_rate,
+        "permanently_failed": perm_failed,
+        "completion_times":   completion_times,
+    }
+
+    # Meta daemon gets an extra stale-pending metric
+    if task_type == "fetch_meta":
+        stale = db.execute(
+            "SELECT COUNT(*) FROM task_queue "
+            "WHERE type=? AND status='pending' AND created_at < datetime('now', '-1 hour')",
+            (task_type,),
+        ).fetchone()[0]
+        result["stale_pending"] = stale
+
+    return result
+
+
+@router.get("/health")
+def get_health(
+    db: sqlite3.Connection = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    """Return per-daemon health metrics for embed and fetch_meta task pipelines."""
+    return {
+        "embed": _daemon_health(db, "embed"),
+        "meta":  _daemon_health(db, "fetch_meta"),
+    }
+
