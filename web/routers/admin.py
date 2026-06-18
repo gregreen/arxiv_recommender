@@ -505,6 +505,19 @@ def get_analytics(
 _DAEMON_TYPES = ("embed", "fetch_meta")
 
 
+def _dt_to_ts(dt_str: str) -> int:
+    """Convert 'YYYY-MM-DD HH:MM:SS' (SQLite UTC) → Unix timestamp (seconds)."""
+    from datetime import datetime, timezone
+    dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    return int(dt.timestamp())
+
+
+def _ts_to_dt(ts: int) -> str:
+    """Convert Unix timestamp → 'YYYY-MM-DDTHH:MM:SS' ISO string."""
+    from datetime import datetime, timezone
+    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
+
 def _daemon_health(db: sqlite3.Connection, task_type: str) -> dict:
     """Return health metrics for a single daemon task type."""
 
@@ -556,12 +569,54 @@ def _daemon_health(db: sqlite3.Connection, task_type: str) -> dict:
         for r in ct_rows
     ]
 
+    # Queue size history (sweep-line over task lifetimes)
+    q_rows = db.execute("""
+        SELECT created_at,
+               COALESCE(completed_at, datetime('now')) AS end_at
+        FROM task_queue
+        WHERE type = ?
+          AND created_at < datetime('now')
+          AND COALESCE(completed_at, datetime('now')) >= COALESCE(
+            (SELECT DATE(MAX(completed_at), '-3 days') FROM task_queue WHERE type=? AND status='done'),
+            datetime('now', '-3 days')
+          )
+        ORDER BY created_at
+    """, (task_type, task_type)).fetchall()
+
+    queue_times: list[dict] = []
+    if q_rows:
+        # Build (ts, delta) events; +1 at created_at, -1 at end_at
+        events: list[tuple[int, int]] = []
+        for r in q_rows:
+            c_ts = _dt_to_ts(r["created_at"])
+            e_ts = _dt_to_ts(r["end_at"])
+            events.append((c_ts, +1))
+            events.append((e_ts, -1))
+        events.sort(key=lambda x: x[0])
+
+        # Sweep: cumulative sum
+        cur = 0
+        t0 = events[0][0]
+        i = 0
+        # Sample at ~288 points across the full range (~15-minute intervals over 3 days)
+        t_end = max(e[0] for e in events)
+        interval = max(1, (t_end - t0) // 288)
+        for t in range(t0, t_end + 1, interval):
+            while i < len(events) and events[i][0] <= t:
+                cur += events[i][1]
+                i += 1
+            queue_times.append({
+                "ts":   _ts_to_dt(t),
+                "size": max(0, cur),
+            })
+
     result = {
         "queue_size":         queue_size,
         "avg_completion_ms":  avg_completion_ms,
         "recent_failure_rate": recent_failure_rate,
         "permanently_failed": perm_failed,
         "completion_times":   completion_times,
+        "queue_times":        queue_times,
     }
 
     # Meta daemon gets an extra stale-pending metric

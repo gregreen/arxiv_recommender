@@ -6,14 +6,15 @@ import {
   type AdminHealth,
   type HealthDaemon,
   type HealthCompletionTime,
+  type HealthQueueTime,
 } from "../api/admin";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-const CHART_ASPECT = 600 / 200;
-const MARGIN = { top: 16, right: 42, bottom: 56, left: 42 };
+const CHART_ASPECT = 600 / 300;
+const MARGIN = { top: 16, right: 62, bottom: 56, left: 62 };
 
 function useContainerWidth() {
   const ref = useRef<HTMLDivElement>(null);
@@ -36,13 +37,17 @@ function useContainerWidth() {
 
 function CompletionTimeChart({
   data,
+  queueData,
   label,
   color,
+  queueColor,
   periodHours,
 }: {
   data: HealthCompletionTime[];
+  queueData: HealthQueueTime[];
   label: string;
   color: string;
+  queueColor: string;
   periodHours: number;
 }) {
   const { ref: containerRef, width: containerW } = useContainerWidth();
@@ -60,17 +65,31 @@ function CompletionTimeChart({
       date: new Date(d.completed_at + "Z"),
       ms: d.duration_ms,
     }));
+    const queuePts = queueData.map((d) => ({
+      date: new Date(d.ts + "Z"),
+      size: d.size,
+    }));
+
     const lastDate = d3.max(pts, (d) => d.date)!;
     const firstDate = new Date(lastDate.getTime() - periodHours * 3_600_000);
 
     const maxMs = (d3.max(pts, (d) => d.ms) ?? 0) * 1.2 || 1000;
+    const maxQueue = d3.max(queuePts, (d) => d.size) ?? 0;
+
     const x = d3.scaleUtc().domain([firstDate, lastDate]).range([0, innerW]);
     const y = d3.scaleLinear().domain([0, maxMs]).range([innerH, 0]).nice();
+    const yQueue = d3.scaleLinear().domain([0, maxQueue * 1.15 || 1]).range([innerH, 0]).nice();
+
     const line = d3.line<{ date: Date; ms: number }>()
       .x((d) => x(d.date))
       .y((d) => y(d.ms))
       .defined((d, i) => i === 0 || (d.date.getTime() - pts[i - 1].date.getTime()) <= 3_600_000);
     const avgMs = d3.mean(pts, (d) => d.ms) ?? 0;
+
+    const areaQueue = d3.area<{ date: Date; size: number }>()
+      .x((d) => x(d.date))
+      .y0(innerH)
+      .y1((d) => yQueue(d.size));
 
     // Major ticks: midnight each day
     const majorDates = d3.utcDay.range(firstDate, lastDate);
@@ -79,8 +98,8 @@ function CompletionTimeChart({
     const firstMinor = d3.utcHour.offset(d3.utcHour.floor(firstDate), 0);
     const minorDates = d3.utcHour.every(minorInterval)!.range(firstMinor, lastDate)!;
 
-    return { x, y, line, avgMs, pts, majorDates, minorDates };
-  }, [data, innerW, innerH, periodHours]);
+    return { x, y, yQueue, line, areaQueue, avgMs, pts, queuePts, majorDates, minorDates };
+  }, [data, queueData, innerW, innerH, periodHours]);
 
   const clipId = useMemo(() => `clip-${Math.random().toString(36).slice(2)}`, []);
 
@@ -92,8 +111,9 @@ function CompletionTimeChart({
     );
   }
 
-  const { x, y, line, avgMs, pts, majorDates, minorDates } = series!;
+  const { x, y, yQueue, line, areaQueue, avgMs, pts, queuePts, majorDates, minorDates } = series!;
   const yTicks = y.ticks(3);
+  const yQueueTicks = yQueue.ticks(3);
   const tickLen = 4;
 
   /** Format "2026-06-17T10:30:00" → "17 Jun" */
@@ -120,6 +140,13 @@ function CompletionTimeChart({
                   y1={y(t)} y2={y(t)}
                   stroke="#e5e7eb" strokeWidth={0.5} />
           ))}
+          {/* Queue area */}
+          {queuePts.length > 0 && (
+            <>
+              <path d={areaQueue(queuePts)!} fill={queueColor} opacity={0.15} />
+              <path d={areaQueue(queuePts)!} fill="none" stroke={queueColor} strokeWidth={0.8} opacity={0.6} />
+            </>
+          )}
           <line x1={0} x2={innerW}
                 y1={y(avgMs)} y2={y(avgMs)}
                 stroke={color} strokeWidth={0.5}
@@ -200,18 +227,42 @@ function CompletionTimeChart({
                   onMouseLeave={() => setHovered(null)} />
           );
         })}
+        {/* Left axis label */}
+        <text x={MARGIN.left / 2} y={MARGIN.top + innerH / 2}
+              textAnchor="middle"
+              className="fill-blue-600 text-[10px] font-semibold"
+              transform={`translate(-12,0) rotate(-90, ${MARGIN.left / 2}, ${MARGIN.top + innerH / 2})`}
+              style={{ fill: color }}>
+          task time
+        </text>
+        {/* Right axis label */}
+        <text x={containerW - MARGIN.right / 2} y={MARGIN.top + innerH / 2}
+              textAnchor="middle"
+              className="text-[10px] font-semibold"
+              transform={`translate(4,0) rotate(-90, ${containerW - MARGIN.right / 2}, ${MARGIN.top + innerH / 2})`}
+              style={{ fill: queueColor }}>
+          queue size
+        </text>
       </svg>
-      {/* Y-axis labels */}
+      {/* Y-axis tick labels (left: task time) */}
       {yTicks.map((t) => (
         <span key={t}
               className="absolute text-gray-400 text-[9px] font-mono pointer-events-none"
-              style={{ left: 4, top: MARGIN.top + y(t), transform: "translateY(-50%)" }}>
+              style={{ left: MARGIN.left - 4, top: MARGIN.top + y(t), transform: "translate(-100%, -50%)" }}>
           {t >= 1000 ? `${(t / 1000).toFixed(1)}s` : `${t}ms`}
+        </span>
+      ))}
+      {/* Y-axis tick labels (right: queue size) */}
+      {yQueueTicks.map((t) => (
+        <span key={`q-${t}`}
+              className="absolute text-gray-400 text-[9px] font-mono pointer-events-none"
+              style={{ left: containerW - MARGIN.right + 4, top: MARGIN.top + yQueue(t), transform: "translateY(-50%)" }}>
+          {t}
         </span>
       ))}
 
       {/* Legend */}
-      <div className="flex items-center gap-4 justify-center mt-0.5 text-[10px] text-gray-400">
+      <div className="flex items-center gap-3 justify-center mt-0.5 text-[10px] text-gray-400">
         <span className="flex items-center gap-1">
           <span className="inline-block w-2.5 h-0.5" style={{ backgroundColor: color }} />
           {label} task time
@@ -220,6 +271,10 @@ function CompletionTimeChart({
           <span className="inline-block w-2.5 h-0.5 border-t border-dashed" style={{ borderColor: color, opacity: 0.5 }} />
           avg
         </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: queueColor, opacity: 0.15 }} />
+          queue
+        </span>
       </div>
     </div>
   );
@@ -227,18 +282,21 @@ function CompletionTimeChart({
 
 // ---------------------------------------------------------------------------
 // Daemon card
+// Daemon card
 // ---------------------------------------------------------------------------
 
 function DaemonCard({
   title,
   data,
   color,
+  queueColor,
   periodHours,
   extraRows,
 }: {
   title: string;
   data: HealthDaemon;
   color: string;
+  queueColor: string;
   periodHours: number;
   extraRows?: { label: string; value: number | string; warn?: boolean }[];
 }) {
@@ -247,7 +305,7 @@ function DaemonCard({
       <h3 className="text-sm font-semibold text-gray-700">{title}</h3>
 
       {/* Stat rows */}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+      <div className="grid grid-cols-3 gap-x-4 gap-y-1.5">
         <Stat label="Queue size" value={data.queue_size} />
         <Stat
           label="Avg time"
@@ -279,7 +337,7 @@ function DaemonCard({
       </div>
 
       {/* Mini chart */}
-      <CompletionTimeChart data={data.completion_times} label={title} color={color} periodHours={periodHours} />
+      <CompletionTimeChart data={data.completion_times} queueData={data.queue_times} label={title} color={color} queueColor={queueColor} periodHours={periodHours} />
     </div>
   );
 }
@@ -406,12 +464,14 @@ export default function AdminHealthPage() {
             title="Embed Daemon"
             data={data.embed}
             color="#3b82f6"
+            queueColor="#818cf8"
             periodHours={periodHours}
           />
           <DaemonCard
             title="Meta Daemon"
             data={data.meta}
             color="#f97316"
+            queueColor="#f472b6"
             periodHours={periodHours}
             extraRows={[
               {

@@ -183,12 +183,18 @@ export interface HealthCompletionTime {
   duration_ms: number;
 }
 
+export interface HealthQueueTime {
+  ts: string;
+  size: number;
+}
+
 export interface HealthDaemon {
   queue_size: number;
   avg_completion_ms: number | null;
   recent_failure_rate: number | null;
   permanently_failed: number;
   completion_times: HealthCompletionTime[];
+  queue_times: HealthQueueTime[];
 }
 
 export interface HealthMeta extends HealthDaemon {
