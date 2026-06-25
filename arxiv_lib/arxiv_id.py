@@ -138,8 +138,8 @@ def validate_arxiv_id(raw: str, *, now: date | None = None) -> str:
                 f"Invalid arXiv ID {raw!r}: date {yy_s}{mm_s} is in the future."
             )
 
-        # Digit-count rule: 4 digits before 1504, 5 digits from 1504 onward.
-        expected_digits = 4 if yymm < 1504 else 5
+        # Digit-count rule: 4 digits before 1501, 5 digits from 1501 onward.
+        expected_digits = 4 if yymm < 1501 else 5
         if len(seq_s) != expected_digits:
             raise ValueError(
                 f"Invalid arXiv ID {raw!r}: sequence number should have "

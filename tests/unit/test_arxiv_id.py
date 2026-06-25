@@ -44,12 +44,12 @@ class TestNewStyle:
         _ok("0704.0001")
 
     def test_valid_last_4digit_month(self):
-        # 1503 is the last month with 4-digit sequences
-        _ok("1503.9999")
+        # 1412 is the last month with 4-digit sequences
+        _ok("1412.9999")
 
     def test_valid_first_5digit_month(self):
-        # 1504 is the first month requiring 5-digit sequences
-        _ok("1504.00001")
+        # 1501 is the first month requiring 5-digit sequences
+        _ok("1501.00001")
 
     def test_valid_5digit_recent(self):
         _ok("2601.12345")
@@ -88,13 +88,13 @@ class TestNewStyle:
         # 2026-04-19: today is Apr 21, so YYMM 2604 is this month — always valid
         _ok("2604.00001")
 
-    def test_invalid_4digit_seq_after_1504(self):
-        # 1504 requires 5 digits; 4-digit sequence is wrong
-        _bad("1504.0001")
+    def test_invalid_4digit_seq_after_1501(self):
+        # 1501 requires 5 digits; 4-digit sequence is wrong
+        _bad("1501.0001")
 
-    def test_invalid_5digit_seq_before_1504(self):
-        # 1503 requires 4 digits; 5-digit sequence is wrong
-        _bad("1503.00001")
+    def test_invalid_5digit_seq_before_1501(self):
+        # 1412 requires 4 digits; 5-digit sequence is wrong
+        _bad("1412.00001")
 
     def test_invalid_all_zero_seq_4digit(self):
         _bad("0704.0000")
