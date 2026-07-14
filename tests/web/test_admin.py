@@ -182,3 +182,50 @@ class TestAdminGroups:
         ).fetchone()
         assert audit is not None
         assert audit["action"] == "delete_group"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/health
+# ---------------------------------------------------------------------------
+
+class TestAdminHealth:
+    def test_health_response_shape(self, admin_client):
+        """GET /api/admin/health returns expected keys for embed and meta."""
+        resp = admin_client.get("/api/admin/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        for key in ("embed", "meta"):
+            d = data[key]
+            for f in ("queue_size", "avg_completion_ms", "recent_failure_rate",
+                      "permanently_failed", "completion_times", "queue_times",
+                      "at_risk_total", "at_risk_rate_24h"):
+                assert f in d, f"{key}.{f} missing"
+        assert "stale_pending" in data["meta"]
+
+    def test_health_at_risk_embed_counts(self, admin_client, web_db):
+        """at_risk_total counts embed tasks with attempts >= 3 and not failed/done."""
+        # Not at risk (attempts=2)
+        tid1 = _insert_task(web_db, "embed", "pending", arxiv_id="2309.00001")
+        web_db.execute("UPDATE task_queue SET attempts=2 WHERE id=?", (tid1,))
+        # AT RISK (attempts=3, pending)
+        tid2 = _insert_task(web_db, "embed", "pending", arxiv_id="2309.00002")
+        web_db.execute("UPDATE task_queue SET attempts=3 WHERE id=?", (tid2,))
+        # AT RISK (attempts=4, pending)
+        tid3 = _insert_task(web_db, "embed", "pending", arxiv_id="2309.00003")
+        web_db.execute("UPDATE task_queue SET attempts=4 WHERE id=?", (tid3,))
+        # Not at risk (attempts=3, done)
+        tid4 = _insert_task(web_db, "embed", "done", arxiv_id="2309.00004")
+        web_db.execute("UPDATE task_queue SET attempts=3 WHERE id=?", (tid4,))
+        # Not at risk (attempts=5, failed)
+        tid5 = _insert_task(web_db, "embed", "failed", arxiv_id="2309.00005")
+        web_db.execute("UPDATE task_queue SET attempts=5 WHERE id=?", (tid5,))
+        # Meta task — should not count
+        tid6 = _insert_task(web_db, "fetch_meta", "pending", arxiv_id="2309.00006")
+        web_db.execute("UPDATE task_queue SET attempts=3 WHERE id=?", (tid6,))
+        web_db.commit()
+
+        resp = admin_client.get("/api/admin/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["embed"]["at_risk_total"] == 2
+        assert data["meta"]["at_risk_total"] is None

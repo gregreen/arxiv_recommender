@@ -552,6 +552,24 @@ def _daemon_health(db: sqlite3.Connection, task_type: str) -> dict:
         (task_type,),
     ).fetchone()[0]
 
+    # At-risk tasks: attempts >= 3 (two retries exhausted) but not yet permanently failed.
+    # Only meaningful for embed tasks (embed retry: max 5 attempts, delays 0 → 5m → 30m → 2h).
+    at_risk_total = None
+    at_risk_rate_24h = None
+    if task_type == "embed":
+        at_risk_total = db.execute(
+            "SELECT COUNT(*) FROM task_queue "
+            "WHERE type='embed' AND attempts >= 3 AND status != 'failed' AND status != 'done'"
+        ).fetchone()[0]
+        at_risk_row = db.execute("""
+            SELECT COUNT(*) FILTER (WHERE attempts >= 3 AND status NOT IN ('failed','done')) * 1.0
+                   / NULLIF(COUNT(*), 0)
+            FROM task_queue
+            WHERE type='embed' AND status IN ('pending','running','done','failed')
+              AND created_at >= datetime('now', '-1 day')
+        """).fetchone()
+        at_risk_rate_24h = round(at_risk_row[0], 4) if at_risk_row and at_risk_row[0] is not None else None
+
     # Completion times for the last 3 days (from the most recent completed task)
     ct_rows = db.execute("""
         SELECT completed_at,
@@ -617,6 +635,8 @@ def _daemon_health(db: sqlite3.Connection, task_type: str) -> dict:
         "permanently_failed": perm_failed,
         "completion_times":   completion_times,
         "queue_times":        queue_times,
+        "at_risk_total":      at_risk_total,
+        "at_risk_rate_24h":   at_risk_rate_24h,
     }
 
     # Meta daemon gets an extra stale-pending metric

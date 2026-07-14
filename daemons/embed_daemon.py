@@ -7,7 +7,7 @@ to the papers table.  For each task:
   1. Skip if the paper is already fully ingested (papers table + embeddings DB).
   2. Call fetch_arxiv_embedding(), which runs:
        summarise (LLM) → embed (embedding model) → save to embeddings_cache.db
-  3. Mark the task done (or failed on error, with automatic retry up to 3 attempts).
+  3. Mark the task done (or failed on error, with automatic retry up to 5 attempts).
 
 The embed daemon and meta daemon are independent and can run in parallel.
 
@@ -40,6 +40,7 @@ from arxiv_lib.config import (
     APP_DB_PATH,
     EMBEDDING_CACHE_DB,
     EMBED_INGEST_POLL_INTERVAL,
+    EMBED_RETRY_DELAYS,
 )
 from arxiv_lib.ingest import fetch_search_embedding, fetch_recommendation_embedding, _init_embedding_db
 
@@ -115,7 +116,11 @@ def process_one_task(app_con: sqlite3.Connection) -> bool:
     except Exception:
         tb = traceback.format_exc()
         log.error("  Task %d failed:\n%s", task_id, tb)
-        fail_task(app_con, task_id, tb)
+        attempt = app_con.execute(
+            "SELECT attempts FROM task_queue WHERE id=?", (task_id,)
+        ).fetchone()["attempts"]
+        delay = EMBED_RETRY_DELAYS[min(attempt - 1, len(EMBED_RETRY_DELAYS) - 1)]
+        fail_task(app_con, task_id, tb, max_attempts=5, retry_delay_seconds=delay)
         app_con.commit()
 
     return True

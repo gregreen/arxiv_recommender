@@ -318,21 +318,37 @@ function DaemonCard({
           }
         />
         <Stat
-          label="Failure rate (24h)"
+          label="Failure (at risk) rate (24h)"
           value={
             data.recent_failure_rate != null
               ? `${(data.recent_failure_rate * 100).toFixed(1)}%`
               : "—"
           }
-          warn={data.recent_failure_rate != null && data.recent_failure_rate > 0.05}
+          level={
+            (data.recent_failure_rate ?? 0) > 0 ? "fail"
+            : (data.at_risk_rate_24h ?? 0) > 0 ? "risk"
+            : "ok"
+          }
+          secondary={
+            data.at_risk_rate_24h != null
+              ? `(${(data.at_risk_rate_24h * 100).toFixed(1)}%)`
+              : undefined
+          }
         />
         <Stat
-          label="Failed (total)"
+          label="Failed (at risk) total"
           value={data.permanently_failed}
-          warn={data.permanently_failed > 0}
+          level={
+            data.permanently_failed > 0 ? "fail"
+            : (data.at_risk_total ?? 0) > 0 ? "risk"
+            : "ok"
+          }
+          secondary={
+            data.at_risk_total != null ? `(${data.at_risk_total})` : undefined
+          }
         />
         {extraRows?.map((r) => (
-          <Stat key={r.label} label={r.label} value={r.value} warn={r.warn} />
+          <Stat key={r.label} label={r.label} value={r.value} level={r.warn ? "risk" : undefined} />
         ))}
       </div>
 
@@ -345,21 +361,23 @@ function DaemonCard({
 function Stat({
   label,
   value,
-  warn,
+  level,
+  secondary,
 }: {
   label: string;
   value: number | string;
-  warn?: boolean;
+  level?: "ok" | "risk" | "fail";
+  secondary?: string;
 }) {
+  const color = level === "fail" ? "text-red-600" : level === "risk" ? "text-amber-500" : "text-gray-800";
   return (
     <div className="flex flex-col">
       <span className="text-[10px] text-gray-400 uppercase">{label}</span>
-      <span
-        className={`text-sm font-semibold tabular-nums ${
-          warn ? "text-amber-600" : "text-gray-800"
-        }`}
-      >
+      <span className={`text-sm font-semibold tabular-nums ${color}`}>
         {value}
+        {secondary != null && (
+          <span className="font-normal ml-0.5">{secondary}</span>
+        )}
       </span>
     </div>
   );

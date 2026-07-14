@@ -184,6 +184,10 @@ EMBED_INGEST_POLL_INTERVAL = 0.1 # seconds
 # interval, so len(META_FETCH_RETRY_DELAYS) == max_attempts - 1.
 META_FETCH_RETRY_DELAYS: list[int] = [15, 120, 960, 7680]  # 15 s, 2 min, 16 min, 128 min
 
+# Exponential backoff delays (seconds) for embed task retries.
+# Attempt 1 → immediate, 2 → 5 min, 3 → 30 min, 4 → 3 h.  Max 5 attempts.
+EMBED_RETRY_DELAYS: list[int] = [0, 300, 1800, 10800]  # 0 s, 5 min, 30 min, 3 h
+
 # Maximum number of 'fetch_meta' tasks claimed and processed in one S2 batch call.
 INGEST_META_BATCH_SIZE = 256
 

@@ -195,6 +195,8 @@ export interface HealthDaemon {
   permanently_failed: number;
   completion_times: HealthCompletionTime[];
   queue_times: HealthQueueTime[];
+  at_risk_total: number | null;
+  at_risk_rate_24h: number | null;
 }
 
 export interface HealthMeta extends HealthDaemon {
