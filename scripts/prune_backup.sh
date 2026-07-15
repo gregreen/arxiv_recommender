@@ -108,6 +108,6 @@
 # }
 
 restic forget --group-by host \
-              --keep-daily 7 --keep-weekly 3 \
-              --keep-monthly 3 --keep-yearly 1 \
+              --keep-daily 7 --keep-weekly 4 \
+              --keep-monthly 4 --keep-yearly 2 \
               --prune
